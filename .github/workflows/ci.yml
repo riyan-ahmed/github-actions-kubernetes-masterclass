@@ -37,10 +37,23 @@ jobs:
           context: ./backend
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
+         
           push: ${{ vars.DEPLOY_ENABLED == 'true' }}
+          load: ${{ vars.DEPLOY_ENABLED != 'true' }}
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME != '' && format('{0}/skillpulse-backend:latest', secrets.DOCKERHUB_USERNAME) || 'skillpulse-backend:latest' }}
             ${{ secrets.DOCKERHUB_USERNAME != '' && format('{0}/skillpulse-backend:{1}', secrets.DOCKERHUB_USERNAME, github.sha) || format('skillpulse-backend:{0}', github.sha) }}
+
+
+      - name: Scan backend image with Trivy
+        uses: aquasecurity/trivy-action@0.33.1
+        if: ${{ vars.DEPLOY_ENABLED != 'true' }}
+        with:
+ 
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/skillpulse-backend:latest
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '0'
 
       - name: Build and push frontend
         uses: docker/build-push-action@v7
