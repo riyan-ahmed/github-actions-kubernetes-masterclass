@@ -46,7 +46,7 @@ jobs:
 
 
       - name: Scan backend image with Trivy
-        uses: aquasecurity/trivy-action@v0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         if: ${{ vars.DEPLOY_ENABLED != 'true' }}
         with:
  
