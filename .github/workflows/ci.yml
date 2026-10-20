@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/advanced-devops]
     paths-ignore:
       - 'k8s/**'
       - 'docs/**'
@@ -26,6 +26,8 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: ./backend
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
           push: ${{ vars.DEPLOY_ENABLED == 'true' }}
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME != '' && format('{0}/skillpulse-backend:latest', secrets.DOCKERHUB_USERNAME) || 'skillpulse-backend:latest' }}
@@ -35,6 +37,8 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: ./frontend
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
           push: ${{ vars.DEPLOY_ENABLED == 'true' }}
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME != '' && format('{0}/skillpulse-frontend:latest', secrets.DOCKERHUB_USERNAME) || 'skillpulse-frontend:latest' }}
