@@ -81,5 +81,11 @@ jobs:
           image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/skillpulse-frontend:latest
           format: table
           severity: HIGH,CRITICAL
-          exit-code: '0'
+          exit-code: '1'
+
+      - name: Push secure frontend image
+        if: ${{ vars.DEPLOY_ENABLED == 'true' }}
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/skillpulse-frontend:latest
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/skillpulse-frontend:${{ github.sha }}
 
