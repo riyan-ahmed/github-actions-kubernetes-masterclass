@@ -54,11 +54,6 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
 
-      - name: Push secure backend image
-        if: ${{ vars.DEPLOY_ENABLED == 'true' }}
-        run: |
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/skillpulse-backend:latest
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/skillpulse-backend:${{ github.sha }}
 
       - name: Build and push frontend
         uses: docker/build-push-action@v7
@@ -82,6 +77,12 @@ jobs:
           format: table
           severity: HIGH,CRITICAL
           exit-code: '1'
+
+      - name: Push secure backend image
+        if: ${{ vars.DEPLOY_ENABLED == 'true' }}
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/skillpulse-backend:latest
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/skillpulse-backend:${{ github.sha }}
 
       - name: Push secure frontend image
         if: ${{ vars.DEPLOY_ENABLED == 'true' }}
