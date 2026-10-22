@@ -53,7 +53,7 @@ jobs:
           image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/skillpulse-backend:latest
           format: table
           severity: HIGH,CRITICAL
-          exit-code: '0'
+          exit-code: '1'
 
       - name: Build and push frontend
         uses: docker/build-push-action@v7
