@@ -66,7 +66,20 @@ jobs:
           context: ./frontend
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
-          push: ${{ vars.DEPLOY_ENABLED == 'true' }}
+
+          push: false
+          load: true
+
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME != '' && format('{0}/skillpulse-frontend:latest', secrets.DOCKERHUB_USERNAME) || 'skillpulse-frontend:latest' }}
             ${{ secrets.DOCKERHUB_USERNAME != '' && format('{0}/skillpulse-frontend:{1}', secrets.DOCKERHUB_USERNAME, github.sha) || format('skillpulse-frontend:{0}', github.sha) }}
+
+
+      - name: Scan frontend image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/skillpulse-frontend:latest
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '0'
+
