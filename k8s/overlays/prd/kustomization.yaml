@@ -1,0 +1,23 @@
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: skillpulse-prd
+
+resources:
+  - ../../base
+
+secretGenerator:
+  - name: skillpulse-db
+    envs:
+      - db-secret.env
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+patches:
+  - path: frontend-patch.yaml
+
+replicas:
+  - name: backend
+    count: 2

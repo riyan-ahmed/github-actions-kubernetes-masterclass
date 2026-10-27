@@ -1,0 +1,25 @@
+
+grafana:
+  enabled: true
+
+prometheus:
+  prometheusSpec:
+    retention: 2d
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 1Gi
+
+alertmanager:
+  enabled: false
+
+kubeEtcd:
+  enabled: false
+
+kubeControllerManager:
+  enabled: false
+
+kubeScheduler:
+  enabled: false
