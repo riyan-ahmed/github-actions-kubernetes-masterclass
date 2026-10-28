@@ -1,0 +1,17 @@
+# Baseline = the values in k8s/base (a no-op today). The AIOps agent's propose_config_pr action edits
+# THIS file (and only this file) through a reviewed pull request; Argo CD then syncs it manually.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  template:
+    spec:
+      containers:
+        - name: backend
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              memory: 128Mi

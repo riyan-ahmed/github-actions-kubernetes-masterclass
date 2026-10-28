@@ -1,0 +1,22 @@
+# NOT part of the default deployment. Included only by aiops/overlays/approval-* (separately approved step:
+# approval-gated remediation of the throwaway backend-sim Deployment in staging).
+# The only write permission the design ever grants: get+patch on ONE named Deployment.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: aiops-remediator-backend-sim
+  namespace: skillpulse-stg
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [backend-sim]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aiops-remediator-backend-sim
+  namespace: skillpulse-stg
+subjects:
+  - {kind: ServiceAccount, name: aiops-agent, namespace: aiops}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: aiops-remediator-backend-sim}

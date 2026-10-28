@@ -1,0 +1,89 @@
+# Grafana Alloy: tails SkillPulse pod logs through the Kubernetes API and pushes them to Loki.
+# One replica is enough on kind (clustering would be required for more, to avoid duplicates).
+# Chart: grafana/alloy 1.14.3   (helm repo add grafana https://grafana.github.io/helm-charts)
+# Install (needs approval):
+#   helm install alloy grafana/alloy --version 1.14.3 -n monitoring -f monitoring/alloy-values.yaml
+controller:
+  type: deployment
+  replicas: 1
+
+alloy:
+  resources:
+    requests: {cpu: 50m, memory: 96Mi}
+    limits: {memory: 256Mi}
+  configMap:
+    create: true
+    content: |
+      // Only the SkillPulse namespaces are collected. Add namespaces here deliberately.
+      discovery.kubernetes "pods" {
+        role = "pod"
+        namespaces {
+          names = ["skillpulse", "skillpulse-dev", "skillpulse-stg", "skillpulse-prd"]
+        }
+      }
+
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app"]
+          target_label  = "app"
+        }
+      }
+
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pods.output
+        forward_to = [loki.process.mask.receiver]
+      }
+
+      // Defence in depth: mask obvious credentials before they are stored in Loki.
+      // In stage.replace the CAPTURED GROUP is what gets replaced, so each expression captures
+      // only the secret value. (The agent redacts again on read; neither replaces keeping
+      // secrets out of logs. Verified against real Alloy by monitoring/validate.)
+      loki.process "mask" {
+        stage.replace {
+          expression = "(?i)(?:pass(?:word|wd)?|secret|token|api[_-]?key)\\s*[=:]\\s*(\\S+)"
+          replace    = "[REDACTED]"
+        }
+        stage.replace {
+          expression = "(?i)bearer\\s+([A-Za-z0-9._~+/=-]{8,})"
+          replace    = "[REDACTED]"
+        }
+        stage.replace {
+          expression = "[\\w.-]+:([^\\s:@/]+)@tcp\\("
+          replace    = "[REDACTED]"
+        }
+        forward_to = [loki.write.default.receiver]
+      }
+
+      loki.write "default" {
+        endpoint {
+          url = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+        }
+      }
+
+# Security: the chart default is a ClusterRole that can get/list/watch ALL Secrets and
+# ConfigMaps cluster-wide (plus nodes/metrics, CRDs). Alloy only needs pods and pod logs in the
+# namespaces listed above, so: namespaced Roles only, with exactly those rules.
+# The render-time assertions in monitoring/validate/loki_alloy_local_check.py enforce this.
+rbac:
+  create: true
+  namespaces: [skillpulse, skillpulse-dev, skillpulse-stg, skillpulse-prd]
+  rules:
+    - apiGroups: [""]
+      resources: [pods]
+      verbs: [get, list, watch]
+    - apiGroups: [""]
+      resources: [pods/log]
+      verbs: [get]

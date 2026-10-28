@@ -1,0 +1,36 @@
+# Minimal Argo CD for the local kind cluster (chart argo/argo-cd; version pinned in docs/aiops-setup.md).
+# Not installed yet: see docs/aiops-setup.md "Argo CD" for the approval-gated steps.
+# Disabled to save resources and attack surface: Dex (SSO), notifications, ApplicationSet controller (0 replicas).
+global:
+  logging:
+    format: json
+configs:
+  params:
+    server.insecure: true            # no TLS inside the kind cluster; reach it only via kubectl port-forward
+    controller.repo.server.timeout.seconds: 120
+  cm:
+    application.resourceTrackingMethod: annotation   # tracking by annotation, not by the app.kubernetes.io/instance label
+    exec.enabled: false              # no web terminal into pods
+    timeout.reconciliation: 180s
+dex:
+  enabled: false
+notifications:
+  enabled: false
+applicationSet:
+  replicas: 0                          # this chart version has no enabled flag; 0 replicas = no ApplicationSet pod
+controller:
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
+server:
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+repoServer:
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+redis:
+  resources:
+    requests: {cpu: 25m, memory: 64Mi}
+    limits: {memory: 128Mi}

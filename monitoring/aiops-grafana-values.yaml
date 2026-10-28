@@ -1,0 +1,149 @@
+# Extra Helm values for the EXISTING kube-prometheus-stack release (release "monitoring").
+# Layered AFTER monitoring/values.yaml:
+#   helm upgrade monitoring prometheus-community/kube-prometheus-stack --version 92.13.1 \
+#     -n monitoring -f monitoring/values.yaml -f monitoring/aiops-grafana-values.yaml
+#
+# BEFORE upgrading read docs/aiops-setup.md: Grafana's storage is an emptyDir, so the pod
+# restart caused by this upgrade deletes every alert rule/contact point created in the UI.
+# Run scripts/grafana-alerting-backup.sh first and scripts/grafana-alerting-restore.sh after.
+#
+# What this does NOT do: it does not provision notification policies (that would replace the
+# existing root policy), does not touch existing rules/contact points (distinct uids/names),
+# and does not install a second Prometheus or Alertmanager.
+grafana:
+  # Webhook bearer token comes from a Secret created out-of-band (never committed):
+  #   kubectl -n monitoring create secret generic aiops-webhook --from-literal=token=<random>
+  envValueFrom:
+    AIOPS_WEBHOOK_TOKEN:
+      secretKeyRef:
+        name: aiops-webhook
+        key: token
+
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      access: proxy
+      url: http://loki.monitoring.svc.cluster.local:3100
+      jsonData:
+        maxLines: 1000
+
+  alerting:
+    contactpoints.yaml:
+      apiVersion: 1
+      contactPoints:
+        - orgId: 1
+          name: aiops-agent
+          receivers:
+            - uid: aiops-agent-webhook
+              type: webhook
+              disableResolveMessage: false
+              settings:
+                url: http://aiops-agent.aiops.svc.cluster.local:8085/webhook/grafana
+                httpMethod: POST
+                maxAlerts: "10"
+                authorization_scheme: Bearer
+                authorization_credentials: $__env{AIOPS_WEBHOOK_TOKEN}
+
+    # Each rule routes straight to the aiops-agent contact point with notification_settings,
+    # so the existing notification policy tree is left exactly as it is.
+    rules.yaml:
+      apiVersion: 1
+      groups:
+        - orgId: 1
+          name: aiops-self-healing
+          folder: AIOps
+          interval: 1m
+          rules:
+            - uid: aiops-crashloop
+              title: SkillPulse CrashLoopBackOff
+              condition: C
+              for: 1m
+              noDataState: OK
+              execErrState: Error
+              labels: {aiops: "true", severity: critical}
+              annotations:
+                summary: Container is in CrashLoopBackOff
+              notification_settings: {receiver: aiops-agent}
+              data:
+                - refId: A
+                  relativeTimeRange: {from: 300, to: 0}
+                  datasourceUid: prometheus
+                  model:
+                    refId: A
+                    instant: true
+                    intervalMs: 1000
+                    maxDataPoints: 43200
+                    # Per-POD signal on purpose: during a bad rollout the previous healthy pod keeps the
+                    # Deployment "available", so deployment-level rules never fire (measured on backend-sim).
+                    # max_over_time[2m] keeps the condition true across scrape gaps: on a real 90 s crash loop
+                    # the raw series fired in 6/12 evaluation phases, the smoothed one in 12/12.
+                    expr: >-
+                      max by (namespace, pod, container)
+                      (max_over_time(kube_pod_container_status_waiting_reason{namespace=~"skillpulse-(stg|prd)", reason="CrashLoopBackOff"}[2m]))
+                - &reduce
+                  refId: B
+                  datasourceUid: __expr__
+                  model: {refId: B, type: reduce, expression: A, reducer: last, settings: {mode: dropNN}}
+                - &threshold
+                  refId: C
+                  datasourceUid: __expr__
+                  model:
+                    refId: C
+                    type: threshold
+                    expression: B
+                    conditions: [{evaluator: {type: gt, params: [0]}}]
+
+            - uid: aiops-oomkilled
+              title: SkillPulse OOMKilled
+              condition: C
+              for: 0s
+              noDataState: OK
+              execErrState: Error
+              labels: {aiops: "true", severity: critical}
+              annotations:
+                summary: Container was OOMKilled and restarted
+              notification_settings: {receiver: aiops-agent}
+              data:
+                - refId: A
+                  relativeTimeRange: {from: 600, to: 0}
+                  datasourceUid: prometheus
+                  model:
+                    refId: A
+                    instant: true
+                    intervalMs: 1000
+                    maxDataPoints: 43200
+                    expr: >-
+                      max by (namespace, pod, container)
+                      ((kube_pod_container_status_last_terminated_reason{namespace=~"skillpulse-(stg|prd)", reason="OOMKilled"} == 1)
+                      and on (namespace, pod, container)
+                      (increase(kube_pod_container_status_restarts_total{namespace=~"skillpulse-(stg|prd)"}[10m]) > 0))
+                - *reduce
+                - *threshold
+
+            - uid: aiops-pod-not-ready
+              title: SkillPulse Pod Running But Not Ready
+              condition: C
+              for: 2m
+              noDataState: OK
+              execErrState: Error
+              labels: {aiops: "true", severity: warning}
+              annotations:
+                summary: Pod is Running but has not become Ready
+              notification_settings: {receiver: aiops-agent}
+              data:
+                - refId: A
+                  relativeTimeRange: {from: 300, to: 0}
+                  datasourceUid: prometheus
+                  model:
+                    refId: A
+                    instant: true
+                    intervalMs: 1000
+                    maxDataPoints: 43200
+                    expr: >-
+                      max by (namespace, pod)
+                      ((kube_pod_status_ready{namespace=~"skillpulse-(stg|prd)", condition="false"} == 1)
+                      and on (namespace, pod)
+                      (kube_pod_status_phase{namespace=~"skillpulse-(stg|prd)", phase="Running"} == 1))
+                - *reduce
+                - *threshold

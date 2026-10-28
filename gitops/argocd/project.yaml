@@ -1,0 +1,27 @@
+# Argo CD AppProject for SkillPulse: what Git is ALLOWED to deploy, and where.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: skillpulse
+  namespace: argocd
+spec:
+  description: SkillPulse (stg, prd and a non-adopting sandbox). Manual sync only.
+  sourceRepos:
+    - https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass.git
+  destinations:
+    - {server: https://kubernetes.default.svc, namespace: skillpulse-stg}
+    - {server: https://kubernetes.default.svc, namespace: skillpulse-prd}
+    - {server: https://kubernetes.default.svc, namespace: skillpulse-gitops}
+  # No cluster-scoped resources at all (no Namespace, ClusterRole, CRD ...). The sandbox namespace is
+  # created by hand (docs/aiops-setup.md), so Git can never create or modify a namespace.
+  clusterResourceWhitelist: []
+  # Only these namespaced kinds. `Secret` is deliberately absent: a plaintext Secret cannot be synced.
+  # Credentials arrive as SealedSecret (decrypted by the controller in the cluster, outside Argo CD).
+  namespaceResourceWhitelist:
+    - {group: apps, kind: Deployment}
+    - {group: apps, kind: StatefulSet}
+    - {group: "", kind: Service}
+    - {group: "", kind: ConfigMap}
+    - {group: bitnami.com, kind: SealedSecret}
+  orphanedResources:
+    warn: true

@@ -25,3 +25,25 @@ docs/skillpulse-kubernetes-guide.html
 # Local Kubernetes database secrets
 k8s/overlays/*/db-secret.env
 backups/
+
+# AIOps agent: local virtualenv and generated runtime output
+aiops/.venv/
+aiops/audit/*
+!aiops/audit/.gitkeep
+__pycache__/
+.pytest_cache/
+
+# Terraform (next project phase): never commit state, plans, local variable files or provider caches.
+# (.terraform.lock.hcl SHOULD be committed, so it is deliberately not ignored.)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+crash.log
+override.tf
+override.tf.json
+
+# Temporary files written by scripts/seal-db-secret.sh before the result is verified
+k8s/gitops/secrets/**/.sealed.*

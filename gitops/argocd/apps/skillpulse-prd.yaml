@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: skillpulse-prd
+  namespace: argocd
+  annotations:
+    aiops.skillpulse/note: "PRODUCTION. ADOPTS EXISTING workloads on first sync. Manual sync only, after a reviewed pull request and the migration review in docs/aiops-setup.md."
+spec:
+  project: skillpulse
+  source:
+    repoURL: https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass.git
+    targetRevision: main
+    path: k8s/gitops/prd
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: skillpulse-prd
+  # MANUAL SYNC ONLY: no `automated` block (so no auto-sync, no self-heal, no auto-prune) and no
+  # resources-finalizer (deleting this Application never cascades to the workloads).
+  # Pruning stays off even on a manual sync: every object carries argocd.argoproj.io/sync-options=Prune=false.
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=false
+      - ApplyOutOfSyncOnly=true
+      - PruneLast=true
+  revisionHistoryLimit: 5

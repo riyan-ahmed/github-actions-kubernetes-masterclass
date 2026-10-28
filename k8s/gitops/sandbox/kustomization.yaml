@@ -1,0 +1,18 @@
+# Argo CD source for skillpulse-gitops. Same base as k8s/overlays/sandbox, but WITHOUT the secretGenerator: the
+# Secret skillpulse-db is delivered as a SealedSecret (see k8s/gitops/secrets/README.md), never as
+# plaintext and never from a git-ignored file. Argo CD cannot render k8s/overlays/* (db-secret.env is
+# not in Git), which is why this directory exists.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: skillpulse-gitops
+
+resources:
+  - ../../base
+
+components:
+  - ../components/gitops-safety
+
+patches:
+  - path: frontend-patch.yaml
+  - path: patches/backend-resources.yaml

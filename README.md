@@ -386,6 +386,27 @@ The Kubernetes half of the course evolves this same app onto a cluster:
 
 Same app. Same pipeline shape. Different runtime — and a lot more power.
 
+
+---
+
+## AIOps: GitOps-driven incident response (read-only by default)
+
+A LangGraph agent that detects Kubernetes incidents from Grafana alerts, collects real evidence (Kubernetes,
+Prometheus, Loki), diagnoses the likely cause, retrieves a runbook, proposes a remediation, applies a deterministic
+safety policy, and writes an audit log and an incident report. It runs **read-only in diagnose mode**; the
+approval-gated remediation and the Argo CD GitOps delivery are written and tested but not enabled.
+
+| Document | What it covers |
+|---|---|
+| [`docs/aiops-architecture.md`](docs/aiops-architecture.md) | Components, data flow, the LangGraph workflow, policy, security model, limits |
+| [`docs/aiops-setup.md`](docs/aiops-setup.md) | Build, test, install order, GitOps and remediation steps, troubleshooting |
+| [`docs/aiops-demo.md`](docs/aiops-demo.md) | A guided demo of the three failure scenarios with real measured timings |
+| [`docs/aiops-learning-guide.md`](docs/aiops-learning-guide.md) | Beginner explanation of every part, labs, interview questions |
+| [`aiops/scenarios/README.md`](aiops/scenarios/README.md) | Crash loop, OOMKilled and readiness scenarios (isolated to `backend-sim`) |
+| [`monitoring/README.md`](monitoring/README.md) | Loki, Alloy and Grafana install, backup/restore and rollback runbook |
+
+Quick start: `make aiops-venv && make aiops-test`.
+
 ---
 
 ## Credits

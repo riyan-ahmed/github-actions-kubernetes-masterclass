@@ -1,0 +1,58 @@
+# READ-ONLY RBAC for the AIOps agent (applied in the read-only deployment step).
+# Namespace-scoped Roles only: no ClusterRoles; no Secrets, ConfigMaps, exec, or any
+# create/update/patch/delete verb in any namespace. Monitored namespaces: staging and production.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: aiops-reader
+  namespace: skillpulse-stg
+rules:
+  - apiGroups: [""]
+    resources: [pods, events]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aiops-reader
+  namespace: skillpulse-stg
+subjects:
+  - {kind: ServiceAccount, name: aiops-agent, namespace: aiops}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: aiops-reader}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: aiops-reader
+  namespace: skillpulse-prd
+rules:
+  - apiGroups: [""]
+    resources: [pods, events]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aiops-reader
+  namespace: skillpulse-prd
+subjects:
+  - {kind: ServiceAccount, name: aiops-agent, namespace: aiops}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: aiops-reader}

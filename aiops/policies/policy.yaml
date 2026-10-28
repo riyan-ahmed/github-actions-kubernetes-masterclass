@@ -1,0 +1,38 @@
+# Deterministic remediation policy for the SkillPulse AIOps agent.
+# This file, not an LLM, decides what may ever happen. Change it only through a reviewed PR.
+version: 1
+
+global:
+  # Master switch for unattended actions. Even when true, AIOPS_MODE=auto and
+  # AIOPS_DRY_RUN=false must also be set. Shipped disabled.
+  auto_remediation_enabled: false
+  min_confidence_for_execution: 0.6
+  max_executions_per_workload_per_hour: 2
+  memory_limit_cap: 512Mi          # propose_config_pr may never propose more than this
+  supported_kinds: [Deployment]      # default-deny: any other kind is never a remediation target
+  forbidden_kinds: [StatefulSet, PersistentVolumeClaim, Secret, Namespace, Node, Service]
+
+environments:
+  skillpulse-stg:
+    tier: staging
+    # The ONLY workloads the agent may modify in the cluster. backend, frontend and
+    # mysql are deliberately absent: they stay read-only.
+    write_allowlist:
+      - {kind: Deployment, name: backend-sim}
+    allowed_actions: [rollout_undo, restart_deployment, propose_config_pr, escalate_human]
+    approval_required_actions: [rollout_undo, propose_config_pr]
+    auto_actions: [restart_deployment]
+
+  skillpulse-prd:
+    tier: production
+    write_allowlist: []            # production is never written by the agent
+    allowed_actions: [propose_config_pr, escalate_human]
+    approval_required_actions: [propose_config_pr]
+    auto_actions: []
+
+# Where propose_config_pr may write (repository paths); a human merges, Argo CD syncs manually.
+gitops_targets:
+  skillpulse-stg:
+    backend: {path: k8s/gitops/stg/patches/backend-resources.yaml, container: backend}
+  skillpulse-prd:
+    backend: {path: k8s/gitops/prd/patches/backend-resources.yaml, container: backend}

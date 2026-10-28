@@ -1,0 +1,69 @@
+# Loki for the local kind cluster: single binary, filesystem storage, no auth (cluster-internal only).
+# Chart: oci://ghcr.io/grafana-community/helm-charts/loki  version 20.0.1 (Loki 3.7.x)
+# Install (needs approval, see docs/aiops-setup.md):
+#   helm install loki oci://ghcr.io/grafana-community/helm-charts/loki --version 20.0.1 \
+#     -n monitoring -f monitoring/loki-values.yaml
+deploymentMode: Monolithic
+
+loki:
+  auth_enabled: false
+  commonConfig:
+    replication_factor: 1
+    ring:
+      kvstore:
+        store: inmemory              # single instance: no hash-ring gossip needed
+  # The chart default joins a "loki-memberlist" headless Service with abort_if_cluster_join_fails.
+  # That Service only lists Ready pods, so a lone replica can crash-loop before it is Ready
+  # (reproduced in local Docker, see monitoring/validate). A single instance has nobody to join.
+  memberlistConfig:
+    bind_port: 7946
+    abort_if_cluster_join_fails: false
+  storage:
+    type: filesystem
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: loki_index_
+          period: 24h
+  limits_config:
+    retention_period: 72h            # logs older than 3 days are deleted by the compactor
+    reject_old_samples: true
+    reject_old_samples_max_age: 24h
+    volume_enabled: true
+  compactor:
+    retention_enabled: true
+    delete_request_store: filesystem
+  pattern_ingester:
+    enabled: false
+
+singleBinary:
+  replicas: 1
+  persistence:
+    enabled: true
+    size: 2Gi                         # small on purpose; 72h retention of three namespaces
+  resources:
+    requests: {cpu: 50m, memory: 200Mi}
+    limits: {memory: 400Mi}
+
+# Not needed for a one-node-per-component local setup: keeps the footprint small.
+read: {replicas: 0}
+write: {replicas: 0}
+backend: {replicas: 0}
+gateway: {enabled: false}
+chunksCache: {enabled: false}
+resultsCache: {enabled: false}
+lokiCanary: {enabled: false}
+test: {enabled: false}
+
+# Security: the rules sidecar would need get/list/watch on ALL ConfigMaps and Secrets
+# cluster-wide. We do not load Loki alert rules from ConfigMaps (alerting stays in Grafana),
+# so the sidecar and its ClusterRole are disabled. Verified by `make aiops-validate-monitoring`.
+sidecar:
+  rules:
+    enabled: false
+rbac:
+  namespaced: true

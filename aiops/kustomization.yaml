@@ -1,0 +1,16 @@
+# Read-only agent deployment. Apply with:  kubectl apply -k aiops/
+# (no `namespace:` transformer on purpose: the Roles live in other namespaces)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deploy/serviceaccount.yaml
+  - deploy/rbac-readonly.yaml
+  - deploy/pvc.yaml
+  - deploy/deployment.yaml
+  - deploy/service.yaml
+# NOT listed on purpose: deploy/rbac-remediator-backend-sim.yaml (later, separate approval)
+configMapGenerator:
+  - name: aiops-policy
+    namespace: aiops
+    files:
+      - policy.yaml=policies/policy.yaml

@@ -1,0 +1,18 @@
+# Grafana's data volume, created OUTSIDE Helm on purpose (applied before the Grafana upgrade).
+# Because the release only references it (grafana.persistence.existingClaim), `helm rollback`,
+# `helm upgrade` and `helm uninstall` can never delete it. Deleting this PVC deletes the data
+# (StorageClass standard has reclaimPolicy Delete): do that only deliberately.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: skillpulse-aiops
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 1Gi

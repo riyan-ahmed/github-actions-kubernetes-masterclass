@@ -1,0 +1,16 @@
+# Variant: Alpine (musl libc, busybox). Build context: aiops/
+FROM python:3.12-alpine
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN apk upgrade --no-cache
+WORKDIR /app
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install -r /tmp/requirements.txt && rm /tmp/requirements.txt
+COPY __init__.py /app/aiops/__init__.py
+COPY agent /app/aiops/agent
+COPY runbooks /app/aiops/runbooks
+COPY policies /app/aiops/policies
+RUN adduser -D -u 10001 -H -s /sbin/nologin aiops && mkdir -p /data/audit && chown -R 10001:10001 /data
+USER 10001:10001
+EXPOSE 8085
+ENTRYPOINT ["python", "-m", "aiops.agent"]
+CMD ["serve", "--host", "0.0.0.0", "--port", "8085"]
