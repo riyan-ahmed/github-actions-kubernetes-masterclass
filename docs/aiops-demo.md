@@ -108,17 +108,19 @@ Pending at 64.5 s and **Alerting at 185.0 s**, and **the agent received the webh
 `Readiness probe failed: HTTP probe failed with statuscode: 404`), runbook `readiness-failure.md`, proposal `rollout_undo`
 (advisory). Note: during this run a *resolved* notification from the previous scenario arrived; the agent correctly ignored it.
 
-## 4. Demo D: the approval flow (optional, needs your explicit approval to enable)
+## 4. Demo D: the approval flow (Stage A, dry run, is applied)
 
-Today the agent cannot write anything. The approval-gated path exists and is tested (14 dedicated tests plus the
-end-to-end graph test) but is not applied. To demonstrate it safely in two stages, see
-[setup section 3](aiops-setup.md#3-controlled-remediation--not-yet-applied):
+The agent currently runs in `approval` mode with `dry_run=true` and one `get`+`patch` grant on `backend-sim`. A real rollback
+(Stage B) is not applied. The two stages are described in
+[setup section 3](aiops-setup.md#3-controlled-remediation-stage-a-applied-stage-b-not-applied):
 
 1. `kubectl apply -k k8s/aiops/approval-dryrun` (adds one Role: `get`+`patch` on `backend-sim` only; mode `approval`,
    server-side **dry run**).
 2. Run a scenario. The report now ends with an **Approval required** section containing the exact command.
 3. `scripts/aiops-decide.sh approve <id> --approver <you> --confirm <id>`: the audit log records the approver, the policy
-   re-check, the rollback-target proof (`was_ready: True`), the patch call (dry run) and the result.
+   re-check, the rollback-target proof (`was_ready: True`), the patch call (dry run) and the result. To run the full battery
+   (invalid tokens, tamper attempt, unchanged-Deployment proof): `python3 aiops/scenarios/tools/approval_check.py <incident-id> approve`
+   (or `reject`). Measured on 2026-10-28/29: 27 of 27 checks for approve and 13 of 13 for reject.
 4. Only if you want to see a real rollback: `kubectl apply -k k8s/aiops/approval-live`, repeat; the agent rolls `backend-sim`
    back and verifies recovery (two healthy polls in a row).
 

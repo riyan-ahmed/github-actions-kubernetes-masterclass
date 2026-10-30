@@ -69,7 +69,13 @@ case "$ACTION" in
     elif [ -z "$REV" ]; then
       echo "no baseline revision in history: re-applying the baseline manifest"; K apply -f "$BASELINE"
     else echo "already at the baseline revision"; fi
-    K rollout status deployment/$DEP --timeout=180s ;;
+    # A fault that sat for a long time leaves a stale ProgressDeadlineExceeded condition that the controller clears a
+    # moment after the undo, so a single `rollout status` can fail even though the rollback worked: retry briefly.
+    for attempt in 1 2 3 4; do
+      if K rollout status deployment/$DEP --timeout=120s; then break; fi
+      [ "$attempt" = 4 ] && { echo "rollout did not complete after the rollback" >&2; exit 1; }
+      sleep 5
+    done ;;
   verify)
     K rollout status deployment/$DEP --timeout=120s
     if healthy_baseline; then echo "PASS backend-sim spec equals the healthy baseline and is 1/1 ready"; else echo "FAIL not at a healthy baseline" >&2; exit 1; fi

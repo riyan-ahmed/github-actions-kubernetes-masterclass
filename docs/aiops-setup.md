@@ -123,10 +123,10 @@ aiops/scenarios/scenario.sh crashloop recover && aiops/scenarios/scenario.sh cra
 ```
 See [aiops-demo.md](aiops-demo.md).
 
-## 3. Controlled remediation  **(not yet applied)**
+## 3. Controlled remediation (Stage A applied, Stage B not applied)
 
-Today the agent has no write permission. To demonstrate approval-gated remediation in two safe stages (each needs an
-explicit human go-ahead; autonomous mode is never configured):
+Stage A (approval mode with a server-side **dry run**) is applied on the cluster and was tested end to end (results below).
+Stage B (a real rollback) is not applied. Each stage needs an explicit human go-ahead; autonomous mode is never configured:
 
 ```bash
 # Stage A: approval flow with a SERVER-SIDE DRY RUN (adds the narrow Role: get+patch on backend-sim only)
@@ -143,6 +143,27 @@ kubectl -n skillpulse-stg delete role,rolebinding aiops-remediator-backend-sim
 ```
 Checks to run after each stage: `kubectl auth can-i patch deployments.apps/backend --as=system:serviceaccount:aiops:aiops-agent -n skillpulse-stg`
 must be `no`; `patch deployments.apps/backend-sim` is `yes` only after stage A.
+
+**Stage A results (measured).** The `kubectl diff` showed only the `AIOPS_MODE` change plus one Role and RoleBinding.
+The authoritative permission list for the agent in `skillpulse-stg` gained exactly one write rule:
+`deployments.apps [backend-sim] [get patch]`. Real server-side dry-run patches *as the agent identity* were accepted for
+`backend-sim` and answered `Forbidden` for `backend`, `frontend`, the MySQL StatefulSet, production, `delete` and `scale`.
+`aiops/scenarios/tools/approval_check.py` then ran against live pending incidents:
+
+| Check | Result |
+|---|---|
+| Report | "Approval required" section with the exact command; states the action is a server-side dry run |
+| Before approval | Incident awaiting approval, nothing executed; rollback target proven healthy (`was_ready: True`) |
+| Invalid approvals | No token / garbage token / the webhook token: 401. Missing or blank approver, invalid decision, injected command in the decision field: 400. Malformed id: 400. Unknown id: 409. Incident stayed pending and the Deployment was untouched |
+| Approve (valid token plus tamper fields `action=delete_pvc`, `namespace=skillpulse-prd`, `workload=mysql`) | HTTP 200; extra fields ignored; executed `rollout_undo` as a **dry run** on `skillpulse-stg/backend-sim` revision 21 to 20; verification skipped; outcome "dry-run only: no change made" |
+| Dry run changed nothing | Same spec hash, generation, replicas, revision and ReplicaSet scaling before and after |
+| Reject (through `scripts/aiops-decide.sh`) | HTTP 200; `approval_rejected` by the named approver; no action, no verification; Deployment unchanged; a second decision is refused (409) |
+| Restart | A pending approval survived `kubectl rollout restart` of the agent: the new pod's checkpoint was still paused at `await_approval` |
+| Audit | 140 events, chain verified; one executed action in the whole log: the dry run; no real execution ever |
+
+Limitation worth knowing: a `patch` grant on one named Deployment lets *any* caller holding the agent's credentials patch any field of
+`backend-sim` (RBAC cannot restrict fields). The agent only uses typed calls from a closed action registry, but this is why the grant is
+limited to a throw-away workload and why it must never be extended to a real application.
 
 ## 4. GitOps with Argo CD and Sealed Secrets  **(not yet applied)**
 

@@ -321,7 +321,7 @@ Two kinds of fixes:
 
 | Kind | Example | How |
 |---|---|---|
-| **Temporary, on the sim workload** | Roll `backend-sim` back to the last healthy revision | `rollout_undo` after human approval (implemented and tested; **not enabled** on the cluster) |
+| **Temporary, on the sim workload** | Roll `backend-sim` back to the last healthy revision | `rollout_undo` after human approval (implemented and tested; running today only as a **server-side dry run**; a real rollback is not enabled) |
 | **Persistent configuration** | Raise a memory limit for the real backend | `propose_config_pr`: writes one patch file and opens a **pull request**; a human reviews, merges, and syncs Argo CD by hand. The agent never edits production directly |
 
 The agent also refuses to modify any Deployment carrying Argo CD tracking metadata, because the right fix there is a Git

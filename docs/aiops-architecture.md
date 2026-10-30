@@ -37,8 +37,9 @@ flowchart LR
 ```
 
 Solid arrows are data flows that exist today. Dotted arrows from the agent are API calls: today they are
-**read-only**. The write path (last dotted arrow) exists in code and is tested, but it is **not enabled** in the
-running cluster: it needs a separately approved RBAC grant and an approval-mode overlay (section 8).
+**read-only**. The write path (last dotted arrow) exists in code and is tested. **Stage A is applied**: the agent runs in
+`approval` mode with `dry_run=true` and one `get`+`patch` grant on `backend-sim`, so approvals are exercised against the
+Kubernetes server-side dry-run API. A real rollback (Stage B) is **not enabled** (section 8).
 Argo CD manifests are written and validated but **not installed** (section 9).
 
 ## 2. Components and why they were chosen
@@ -136,8 +137,8 @@ incident.
 
 | Mode | Behaviour | Where used |
 |---|---|---|
-| `diagnose` (default) | Read-only. The decision is recorded as `advisory_only` with `would_be` shown | **running today** |
-| `approval` | A permitted action waits for a human decision | `k8s/aiops/approval-*` overlays (not applied) |
+| `diagnose` (default) | Read-only. The decision is recorded as `advisory_only` with `would_be` shown | the default deployment (`kubectl apply -k aiops/`) |
+| `approval` | A permitted action waits for a human decision | **running today with `dry_run=true`** (`k8s/aiops/approval-dryrun`); `approval-live` is not applied |
 | `auto` | Allowlisted staging actions may run unattended; also needs `auto_remediation_enabled: true` | **disabled; never configured** |
 
 `AIOPS_DRY_RUN=true` (default) turns execution into a server-side dry run. Rules enforced in code
@@ -159,7 +160,7 @@ namespace × workload × kind × action × mode combination.
 | Fail closed | Missing token → 503; wrong token → 401; missing required Secret → pod does not start; unknown action/kind/namespace → denied |
 | Container | Non-root, read-only root filesystem, all capabilities dropped, no shell in the runtime image, digest-pinned Chainguard base, 0 Trivy findings |
 
-## 8. Controlled remediation (prepared, not enabled)
+## 8. Controlled remediation (Stage A dry run applied; real rollback not enabled)
 
 * `k8s/aiops/approval-dryrun` and `k8s/aiops/approval-live` are kustomize overlays on the default deployment. They add
   only the narrow Role and set `AIOPS_MODE=approval` and `AIOPS_DRY_RUN` true or false. Autonomous mode is never set.
