@@ -114,7 +114,7 @@ the AI decide:* safety must not depend on a model behaving well.
 BM25, a classic keyword-ranking formula. *Honest label:* this is **lexical** retrieval, not "semantic RAG" with
 embeddings. It is real and tested, and for three small runbooks it is enough.
 
-**Argo CD + Sealed Secrets** (written, validated offline, **not installed**). GitOps delivery with manual sync, and
+**Argo CD + Sealed Secrets** (installed for a sandbox namespace; staging and production are not under Argo CD). GitOps delivery with manual sync, and
 encrypted secrets that are safe to commit. See section 9.
 
 ---
@@ -304,7 +304,7 @@ it errors, the rules win. It can never name an action, a target or a command.
 **GitOps** means the Git repository is the source of truth for what runs; a tool (Argo CD) makes the cluster match it.
 Changes happen through reviewed pull requests, and a rollback is a `git revert`.
 
-How this project uses it (written and validated, **not installed**):
+How this project uses it (installed for the sandbox only):
 
 * `k8s/gitops/{stg,prd,sandbox}` are the Argo CD sources: the same base manifests as the live overlays but **without**
   the `secretGenerator` that reads a git-ignored file (Argo CD can't read your laptop).
@@ -321,7 +321,7 @@ Two kinds of fixes:
 
 | Kind | Example | How |
 |---|---|---|
-| **Temporary, on the sim workload** | Roll `backend-sim` back to the last healthy revision | `rollout_undo` after human approval (implemented and tested; running today only as a **server-side dry run**; a real rollback is not enabled) |
+| **Temporary, on the sim workload** | Roll `backend-sim` back to the last healthy revision | `rollout_undo` after human approval (demonstrated once for real on 2026-10-30 after a human approval; the agent rests in **server-side dry-run** mode) |
 | **Persistent configuration** | Raise a memory limit for the real backend | `propose_config_pr`: writes one patch file and opens a **pull request**; a human reviews, merges, and syncs Argo CD by hand. The agent never edits production directly |
 
 The agent also refuses to modify any Deployment carrying Argo CD tracking metadata, because the right fix there is a Git
@@ -464,7 +464,7 @@ permissions. **Revision**: a numbered version of a Deployment. **Runbook**: a hu
 
 ## 15. What this project does *not* show
 
-* Autonomous self-healing: the agent is read-only on the cluster; the remediation path is tested in code but not enabled.
+* Autonomous self-healing: every real action needs a named human approval, and autonomous mode is never enabled. One real rollback was demonstrated.
 * A statistical improvement in recovery time: only single runs were measured.
 * Production readiness: it is a local kind cluster; NetworkPolicy is not enforced; Secrets are base64 at rest.
-* Argo CD in operation: the manifests are written and validated but not installed.
+* Argo CD for real workloads: it manages only a sandbox namespace; staging and production-like are not under GitOps yet.

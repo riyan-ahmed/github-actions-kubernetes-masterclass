@@ -108,11 +108,11 @@ Pending at 64.5 s and **Alerting at 185.0 s**, and **the agent received the webh
 `Readiness probe failed: HTTP probe failed with statuscode: 404`), runbook `readiness-failure.md`, proposal `rollout_undo`
 (advisory). Note: during this run a *resolved* notification from the previous scenario arrived; the agent correctly ignored it.
 
-## 4. Demo D: the approval flow (Stage A, dry run, is applied)
+## 4. Demo D: the approval flow (Stage A and Stage B were both demonstrated)
 
-The agent currently runs in `approval` mode with `dry_run=true` and one `get`+`patch` grant on `backend-sim`. A real rollback
-(Stage B) is not applied. The two stages are described in
-[setup section 3](aiops-setup.md#3-controlled-remediation-stage-a-applied-stage-b-not-applied):
+The agent rests in `approval` mode with `dry_run=true` and one `get`+`patch` grant on `backend-sim`. A real rollback (Stage B)
+was demonstrated once and then switched back off. The two stages are described in
+[setup section 3](aiops-setup.md#3-controlled-remediation-stage-a-and-b-demonstrated-resting-state-dry-run):
 
 1. `kubectl apply -k k8s/aiops/approval-dryrun` (adds one Role: `get`+`patch` on `backend-sim` only; mode `approval`,
    server-side **dry run**).
@@ -121,17 +121,20 @@ The agent currently runs in `approval` mode with `dry_run=true` and one `get`+`p
    re-check, the rollback-target proof (`was_ready: True`), the patch call (dry run) and the result. To run the full battery
    (invalid tokens, tamper attempt, unchanged-Deployment proof): `python3 aiops/scenarios/tools/approval_check.py <incident-id> approve`
    (or `reject`). Measured on 2026-10-28/29: 27 of 27 checks for approve and 13 of 13 for reject.
-4. Only if you want to see a real rollback: `kubectl apply -k k8s/aiops/approval-live`, repeat; the agent rolls `backend-sim`
-   back and verifies recovery (two healthy polls in a row).
+4. Stage B, the real rollback: `kubectl diff -k k8s/aiops/approval-live` (it must show only `AIOPS_DRY_RUN: "true" -> "false"`),
+   `kubectl apply -k k8s/aiops/approval-live`, run the crash-loop scenario, approve **one** incident. Measured on 2026-10-30:
+   Grafana alert to the agent in 119.3 s; the human approval was followed within the same second by one `rollout_undo`
+   (revision 25 to 24) and `recovered: true` 10 s later. Then return to dry run: `kubectl apply -k k8s/aiops/approval-dryrun`.
 
 Safety to point out: the token never appears on a command line, `--confirm` makes you retype the incident id, the policy
 is re-evaluated at execution time, and `backend`, `frontend`, MySQL and production remain read-only.
 
-## 5. Demo E: GitOps (optional, not installed)
+## 5. Demo E: GitOps (sandbox installed and synced once)
 
-`k8s/gitops/*` and `gitops/argocd/*` are written and validated offline. A read-only
-`kubectl diff -k k8s/gitops/stg` shows that a first Argo CD sync would change **one annotation per object and nothing
-else** (no restarts). See [setup section 4](aiops-setup.md#4-gitops-with-argo-cd-and-sealed-secrets--not-yet-applied)
+Argo CD and Sealed Secrets are installed; the sandbox Application (`skillpulse-sandbox`, namespace `skillpulse-gitops`) was synced
+by hand once: `argocd`-style manual sync created 8 objects in about 1 s and was Healthy in about 27 s, with a new MySQL on its
+own volume and sandbox-only encrypted credentials. A read-only `kubectl diff -k k8s/gitops/stg` shows that a first sync of
+staging would change **one annotation per object and nothing else** (no restarts); that step is not taken. See [setup section 4](aiops-setup.md#4-gitops-with-argo-cd-and-sealed-secrets--installed-for-the-sandbox-only)
 for the sandbox-first migration plan.
 
 ## 6. After the demo
@@ -142,6 +145,23 @@ kubectl -n aiops exec -i deploy/aiops-agent -- python -m aiops.agent audit-verif
 ```
 `backend-sim` can stay (it is idle and tiny). To remove it: `kubectl -n skillpulse-stg delete deployment backend-sim`.
 Generated timelines and reports are written to `aiops/audit/scenarios/` (git-ignored).
+
+## 6a. Measured results, all runs (seconds after injection; single runs, no statistics)
+
+| Scenario | Run | Prometheus sees it | Grafana rule Alerting | Agent has the report | Diagnosis (confidence) | Policy decision |
+|---|---|---|---|---|---|---|
+| CrashLoopBackOff | 2026-10-28 | 6.5 | 98.8 | 127.6 | `crash_loop` / `invalid_configuration` (0.9) | advisory only (diagnose mode) |
+| CrashLoopBackOff | 2026-10-30 (Stage B) | 8.8 | 87.2 | **119.3** | same (0.9) | `requires_approval`; approved; real rollback, recovered 10 s after approval |
+| OOMKilled | 2026-10-28 | 21.6 | 81.5 / 83.6 | 113.3 | `oom_killed` / `memory_limit_reduced` (0.9) | advisory only |
+| OOMKilled | 2026-10-30 | 12.1 | 73.6 / 75.7 | **103.3** | same (0.9), `backend.memory_limit: 128Mi -> 6Mi` | `requires_approval` (rejected by the test driver; recovered manually) |
+| Readiness failure | 2026-10-28 | 30.3 | 185.0 | 214.7 | `readiness_failure` / `probe_misconfigured` (0.75) | advisory only |
+| Readiness failure | 2026-10-30 | 29.9 | 186.4 | **216.0** | same (0.75), `readiness_path: /health -> /healthz`, HTTP 404 event | `requires_approval` (rejected by the test driver; recovered manually) |
+
+Every row used the real alert path (Grafana evaluated the rule and called the webhook); the observer only watches. After each
+scenario `scenario.sh <name> verify` passed (spec equals the healthy baseline, no failing container, the agent's own recovery check
+`recovered = True`) and the audit chain stayed valid. The rollback target was proven Ready in the last 24 h in every report.
+The 2026-10-30 runs were taken with the agent in `approval` mode; only the crash loop was approved and executed (Stage B).
+Note: a laptop sleep delayed the start of the OOM run; the intervals above are measured within each run.
 
 ## 7. Talking points and honest numbers
 

@@ -36,11 +36,11 @@ flowchart LR
   ARGO --> app
 ```
 
-Solid arrows are data flows that exist today. Dotted arrows from the agent are API calls: today they are
-**read-only**. The write path (last dotted arrow) exists in code and is tested. **Stage A is applied**: the agent runs in
-`approval` mode with `dry_run=true` and one `get`+`patch` grant on `backend-sim`, so approvals are exercised against the
-Kubernetes server-side dry-run API. A real rollback (Stage B) is **not enabled** (section 8).
-Argo CD manifests are written and validated but **not installed** (section 9).
+Solid arrows are data flows that exist today. Dotted arrows from the agent are API calls: all read-only except the last
+one. That write path is exercised only after a human approves, and only against `backend-sim`. The agent runs in `approval`
+mode with `dry_run=true` by default. **Stage A** (approval against the server-side dry-run API) and **Stage B** (one real,
+human-approved rollback of `backend-sim`) were both demonstrated; after Stage B the agent was returned to dry-run (section 8).
+Argo CD and Sealed Secrets are installed for a sandbox namespace only (section 9). Autonomous remediation is never enabled.
 
 ## 2. Components and why they were chosen
 
@@ -53,8 +53,8 @@ Argo CD manifests are written and validated but **not installed** (section 9).
 | LangGraph agent | The incident workflow | `aiops/agent/` (Python), image `skillpulse-aiops-agent:0.4.0` (v0.3.0 is what currently runs; v0.4.0 adds the approval section in reports and is built, not yet deployed) | An explicit, inspectable state machine with a built-in human-approval pause (`interrupt`) and checkpointing |
 | BM25 retrieval | Runbook lookup | `aiops/agent/retrieval.py` | Real, deterministic, testable lexical retrieval. It is **not** semantic/embedding RAG and is not described as such |
 | Policy engine | Decides what may ever run | `aiops/agent/policy.py` + `aiops/policies/policy.yaml` | Plain code, not an LLM: safety does not depend on model behaviour |
-| Argo CD (not installed) | GitOps delivery | `gitops/argocd/` | Declarative, reviewable change path; manual sync only |
-| Sealed Secrets (not installed) | Secrets in Git | `scripts/seal-db-secret.sh` | Encrypted manifests are safe to commit; works on a local kind cluster |
+| Argo CD (installed, sandbox only) | GitOps delivery | `gitops/argocd/` | Declarative, reviewable change path; manual sync only |
+| Sealed Secrets (installed, namespace-scoped) | Secrets in Git | `scripts/seal-db-secret.sh` | Encrypted manifests are safe to commit; works on a local kind cluster |
 
 ## 3. Signal path: from a failing pod to the agent
 
@@ -138,7 +138,7 @@ incident.
 | Mode | Behaviour | Where used |
 |---|---|---|
 | `diagnose` (default) | Read-only. The decision is recorded as `advisory_only` with `would_be` shown | the default deployment (`kubectl apply -k aiops/`) |
-| `approval` | A permitted action waits for a human decision | **running today with `dry_run=true`** (`k8s/aiops/approval-dryrun`); `approval-live` is not applied |
+| `approval` | A permitted action waits for a human decision | **running today with `dry_run=true`** (`k8s/aiops/approval-dryrun`); `approval-live` was applied once for Stage B, then reverted |
 | `auto` | Allowlisted staging actions may run unattended; also needs `auto_remediation_enabled: true` | **disabled; never configured** |
 
 `AIOPS_DRY_RUN=true` (default) turns execution into a server-side dry run. Rules enforced in code
@@ -160,7 +160,7 @@ namespace × workload × kind × action × mode combination.
 | Fail closed | Missing token → 503; wrong token → 401; missing required Secret → pod does not start; unknown action/kind/namespace → denied |
 | Container | Non-root, read-only root filesystem, all capabilities dropped, no shell in the runtime image, digest-pinned Chainguard base, 0 Trivy findings |
 
-## 8. Controlled remediation (Stage A dry run applied; real rollback not enabled)
+## 8. Controlled remediation (Stage A and Stage B demonstrated; resting state is dry run)
 
 * `k8s/aiops/approval-dryrun` and `k8s/aiops/approval-live` are kustomize overlays on the default deployment. They add
   only the narrow Role and set `AIOPS_MODE=approval` and `AIOPS_DRY_RUN` true or false. Autonomous mode is never set.
@@ -169,15 +169,24 @@ namespace × workload × kind × action × mode combination.
   into memory and never printed.
 * On approval, `execute` re-checks policy, proves the rollback target was healthy, patches **only** `backend-sim`
   through the Kubernetes API, and `verify` confirms recovery. Everything is audited.
+* **Stage B was run once** (2026-10-30): the overlay diff was exactly `AIOPS_DRY_RUN: "true" -> "false"`; a real crash loop on
+  `backend-sim` was detected by Grafana (119.3 s after injection), diagnosed (`crash_loop` / `invalid_configuration`), held at
+  `requires_approval`, approved by a named human, rolled back once (revision 25 to 24) and verified (`recovered: true`, 10 s
+  after approval). The audit chain stayed valid and the agent was then returned to `dry_run=true`. Autonomous mode was never enabled.
 
-## 9. GitOps design (prepared, not installed)
+## 9. GitOps design (Argo CD and Sealed Secrets installed for the sandbox only)
 
 * `k8s/gitops/{stg,prd,sandbox}`: thin overlays on `k8s/base` **without** the git-ignored `secretGenerator`. Rendered
   output is spec-identical to the live overlays; a read-only `kubectl diff` showed that a first sync would change
   exactly one thing per object: an added `argocd.argoproj.io/sync-options: Prune=false,Delete=false` annotation (no
   pod-template change, so no restarts).
-* `gitops/argocd/project.yaml`: the allowed repo, three destination namespaces, **no** cluster-scoped resources, and
-  `Secret` deliberately not whitelisted. `apps/*.yaml`: manual sync, no `automated`, no finalizer.
+* `gitops/argocd/project.yaml`: the allowed repo, **one** destination namespace (`skillpulse-gitops`, the sandbox), **no**
+  cluster-scoped resources, and `Secret` deliberately not whitelisted. `apps/*.yaml`: manual sync, no `automated`, no finalizer.
+  Staging and production-like are written but unusable until the project is widened after a separate review.
+* **Done and measured:** Argo CD 10.11.6 and a namespace-scoped Sealed Secrets (no ClusterRole) are installed; one manual sync
+  created the 8 sandbox objects (including a new MySQL with its own volume and an encrypted, sandbox-only SealedSecret) in about
+  1 s, Healthy about 27 s later, with 0 changes to any existing resource. Argo's controller ClusterRole is cluster-admin
+  equivalent (chart default): the AppProject, not the controller, is the fence.
 * **Persistent configuration changes go through pull requests.** `propose_config_pr` writes a one-file patch
   (`k8s/gitops/<env>/patches/backend-resources.yaml`) and opens a GitHub PR when enabled (disabled by default; in
   dry-run it writes only a local proposal). A human merges, then syncs in Argo CD by hand.
@@ -213,4 +222,7 @@ namespace × workload × kind × action × mode combination.
 * Kubernetes Secrets are only base64-encoded at rest on this cluster.
 * Grafana runs with a `RollingUpdate` strategy (`maxSurge 0`) rather than `Recreate`; see the SQLite overlap note in
   [`monitoring/README.md`](../monitoring/README.md).
+* The application images use `:latest` and the backend image exists only in the local cluster's image cache (not pullable from the registry).
+* The legacy demo database credentials were rotated after being found in Git history (see
+  [security-legacy-credential-rotation.md](security-legacy-credential-rotation.md)); history was not rewritten.
 * Single-run measurements only; nothing here supports an MTTR-improvement claim.

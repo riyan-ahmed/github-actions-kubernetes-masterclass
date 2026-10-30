@@ -2,7 +2,7 @@
 
 How to build, test and deploy the system from a clean checkout on the local kind cluster, in the order the
 pieces depend on each other. Every command below was run for real while building this project, except where a
-section says **(not yet applied)**. Architecture: [aiops-architecture.md](aiops-architecture.md).
+section says otherwise. Architecture: [aiops-architecture.md](aiops-architecture.md).
 
 Conventions: run everything from the repository root. `kubectl` must point at the `kind-skillpulse` context.
 Anything that changes the cluster says so; read it before you run it.
@@ -123,10 +123,10 @@ aiops/scenarios/scenario.sh crashloop recover && aiops/scenarios/scenario.sh cra
 ```
 See [aiops-demo.md](aiops-demo.md).
 
-## 3. Controlled remediation (Stage A applied, Stage B not applied)
+## 3. Controlled remediation (Stage A and B demonstrated, resting state dry run)
 
-Stage A (approval mode with a server-side **dry run**) is applied on the cluster and was tested end to end (results below).
-Stage B (a real rollback) is not applied. Each stage needs an explicit human go-ahead; autonomous mode is never configured:
+Stage A (approval mode with a server-side **dry run**) is the resting state on the cluster and was tested end to end (results below).
+Stage B (one real, human-approved rollback of `backend-sim`) was run on 2026-10-30 and then switched back off. Each stage needs an explicit human go-ahead; autonomous mode is never configured:
 
 ```bash
 # Stage A: approval flow with a SERVER-SIDE DRY RUN (adds the narrow Role: get+patch on backend-sim only)
@@ -161,14 +161,23 @@ The authoritative permission list for the agent in `skillpulse-stg` gained exact
 | Restart | A pending approval survived `kubectl rollout restart` of the agent: the new pod's checkpoint was still paused at `await_approval` |
 | Audit | 140 events, chain verified; one executed action in the whole log: the dry run; no real execution ever |
 
+**Stage B results (measured, 2026-10-30).** `kubectl diff -k k8s/aiops/approval-live` showed exactly one change: `AIOPS_DRY_RUN: "true" -> "false"`
+(`auto_remediation_enabled` stayed `false`; the write allowlist stayed `backend-sim` only). A real crash loop was injected into
+`backend-sim`: Grafana's alert reached the agent in **119.3 s**; the report diagnosed `crash_loop` / `invalid_configuration`
+(`PORT: 8080 -> notaport`), proved the rollback target (revision 24) had been Ready, and the policy decision was `requires_approval`.
+Before approving, the target, rollback revision, agent RBAC (only `patch backend-sim` allowed) and the unchanged generations of
+every real stg/prd workload were re-checked. After the human approval, the agent executed **one** `rollout_undo` (revision 25 to 24)
+in the same second and recorded `recovered: true` 10 s later. The audit chain stayed valid. The agent was then set back to
+`approval` / `dry_run=true`.
+
 Limitation worth knowing: a `patch` grant on one named Deployment lets *any* caller holding the agent's credentials patch any field of
 `backend-sim` (RBAC cannot restrict fields). The agent only uses typed calls from a closed action registry, but this is why the grant is
 limited to a throw-away workload and why it must never be extended to a real application.
 
-## 4. GitOps with Argo CD and Sealed Secrets  **(not yet applied)**
+## 4. GitOps with Argo CD and Sealed Secrets  **(installed for the sandbox only)**
 
 Everything below is written and validated offline (and rehearsed on a disposable cluster, section 4.1a): manifests, overlays,
-24 tests. Nothing is installed.
+tests. **Argo CD and Sealed Secrets are installed and the sandbox was synced once** (results in 4.1a and in the architecture doc, section 9); staging and production-like are not under Argo CD yet.
 
 ### 4.1 Argo CD migration review (read this before syncing stg or prd)
 

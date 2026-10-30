@@ -1,5 +1,5 @@
 # Minimal Argo CD for the local kind cluster (chart argo/argo-cd; version pinned in docs/aiops-setup.md).
-# Not installed yet: see docs/aiops-setup.md "Argo CD" for the approval-gated steps.
+# Installed (sandbox only): see docs/aiops-setup.md "Argo CD" for the approval-gated steps.
 # Disabled to save resources and attack surface: Dex (SSO), notifications, ApplicationSet controller (0 replicas).
 global:
   logging:

@@ -90,5 +90,5 @@ aiops-validate-gitops: ## Render the GitOps overlays and validate the Argo CD ma
 
 aiops-lint: ## YAML, shell and Python checks on the AIOps files
 	yamllint -d "{extends: relaxed, rules: {line-length: {max: 220}}}" aiops/deploy aiops/components aiops/scenarios aiops/policies aiops/kustomization.yaml aiops/docker gitops k8s/gitops k8s/aiops monitoring/aiops-grafana-values.yaml monitoring/alloy-values.yaml monitoring/loki-values.yaml monitoring/grafana-persistence-values.yaml monitoring/grafana-pvc.yaml
-	shellcheck -S warning scripts/aiops-decide.sh scripts/seal-db-secret.sh scripts/grafana-alerting-backup.sh scripts/grafana-alerting-restore.sh aiops/scenarios/scenario.sh
+	shellcheck -S warning scripts/aiops-decide.sh scripts/seal-db-secret.sh scripts/grafana-alerting-backup.sh scripts/grafana-alerting-restore.sh scripts/rotate-legacy-db-credentials.sh scripts/sealed-secrets-key-backup.sh aiops/scenarios/scenario.sh
 	$(AIOPS_PY) -m compileall -q aiops/agent aiops/tests monitoring/validate gitops

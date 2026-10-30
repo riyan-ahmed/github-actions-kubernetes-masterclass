@@ -10,4 +10,4 @@
 All Applications are **manual sync**: no `automated`, no self-heal, no prune, no finalizer. Validate offline with
 `make aiops-validate-gitops` (renders the overlays and checks the manifests against the chart's CRD schemas). The
 migration review, install steps, secrets approach and rollback are in
-[`docs/aiops-setup.md`](../../docs/aiops-setup.md#4-gitops-with-argo-cd-and-sealed-secrets--not-yet-applied).
+[`docs/aiops-setup.md`](../../docs/aiops-setup.md#4-gitops-with-argo-cd-and-sealed-secrets--installed-for-the-sandbox-only).

@@ -1,4 +1,130 @@
-# SkillPulse — GitHub Actions & Kubernetes Masterclass
+# SkillPulse — SRE / AIOps on Kubernetes
+
+A small three-tier app (Go API, Nginx frontend, MySQL) turned into an **SRE portfolio project**: a CI/CD pipeline, a full
+observability stack, GitOps delivery, and a **human-in-the-loop incident-response agent** built with LangGraph. Prometheus, Loki and
+Grafana detect a failure; Grafana calls the agent; the agent gathers real evidence, diagnoses the cause, retrieves a runbook,
+proposes a rollback, and **waits for a named human to approve it**. A policy file, not an LLM, decides what is allowed.
+
+> **What this is not:** it is not autonomous self-healing, not production-ready, and it makes no MTTR-improvement claim. It runs on a
+> local `kind` cluster and every number below is a single measured run. One real, human-approved rollback was demonstrated on a
+> throw-away workload (`backend-sim`).
+
+The application and its original GitHub Actions / Kubernetes tutorial material (from the TrainWithShubham masterclass) are kept
+further down this page. Everything under `aiops/`, `monitoring/`, `gitops/` and `docs/aiops-*` is the SRE/AIOps work.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph k8s["kind cluster"]
+    APP["skillpulse-stg / -prd<br/>backend, frontend, mysql"]
+    SIM["backend-sim<br/>(throw-away fault target)"]
+    PROM[(Prometheus)]
+    LOKI[(Loki + Alloy)]
+    GRAF["Grafana alert rules"]
+    AGENT["aiops-agent<br/>LangGraph + policy + audit log"]
+    ARGO["Argo CD + Sealed Secrets<br/>(sandbox namespace)"]
+  end
+  APP --> PROM
+  SIM --> PROM
+  APP -->|logs| LOKI
+  PROM --> GRAF
+  GRAF -->|"authenticated webhook"| AGENT
+  AGENT -.->|read-only evidence| PROM
+  AGENT -.->|read-only evidence| LOKI
+  AGENT -.->|"after human approval only<br/>rollout undo of backend-sim"| SIM
+  HUMAN([human approver]) -->|"aiops-decide.sh approve / reject"| AGENT
+  GIT[(GitHub)] -->|"manual sync, no prune"| ARGO
+```
+
+Detail: [`docs/aiops-architecture.md`](docs/aiops-architecture.md).
+
+## Technologies
+
+| Area | Used |
+|---|---|
+| App | Go (Gin), Nginx, MySQL 8.4 |
+| CI/CD | GitHub Actions: Go tests, image build and push, Trivy scans that gate publishing, manifest pinning to the commit SHA |
+| Orchestration | Kubernetes (kind), Kustomize overlays (dev / stg / prd) |
+| Observability | kube-prometheus-stack (Prometheus, Grafana), Loki, Grafana Alloy (masks credentials before storage) |
+| Incident response | Python, LangGraph (checkpointed state machine, `interrupt()` for approval), FastAPI webhook, BM25 runbook retrieval |
+| GitOps / secrets | Argo CD (manual sync, no prune), Sealed Secrets (namespace-scoped) |
+| Container security | Chainguard digest-pinned base, non-root, read-only filesystem, 0 Trivy findings on the agent image |
+
+## How an incident flows
+
+1. **Detect.** Grafana alert rules (CrashLoopBackOff, OOMKilled, pod running but not ready) fire from Prometheus metrics.
+2. **Deliver.** Grafana posts to the agent's webhook with a Bearer token (fail-closed: no token configured, no service).
+3. **Collect evidence.** Read-only: Kubernetes (pod state, events, **revision diff**), Prometheus (6 reproducible PromQL queries, plus
+   proof the rollback target had Ready pods), Loki (log lines).
+4. **Diagnose.** Deterministic rules classify the incident and name a suspected root cause (heuristic, uncalibrated confidence).
+5. **Retrieve and propose.** BM25 picks a runbook; the proposal comes from a closed action registry (`rollout_undo`,
+   `restart_deployment`, `propose_config_pr`, `escalate_human`).
+6. **Decide.** The policy file applies mode, write allowlist, rate limit and confidence floor. Result: `requires_approval`.
+7. **Approve.** A human runs `scripts/aiops-decide.sh approve <id> --approver <name> --confirm <id>`. The graph resumes from its
+   checkpoint, re-checks policy, executes, and verifies recovery with two healthy polls.
+8. **Audit.** Every step lands in a hash-chained, tamper-evident log; secrets are redacted.
+
+## Safety controls
+
+* **Human approval** for every real action; **autonomous mode is never enabled** (`auto_remediation_enabled: false`).
+* **Deterministic policy** (`aiops/policies/policy.yaml`): the only workload the agent may write is `Deployment/backend-sim` in
+  `skillpulse-stg`; production-like is never written; StatefulSets, PVCs, Secrets and Services are forbidden kinds.
+* **Least-privilege RBAC:** one Role, `get`+`patch` on `deployments/backend-sim`. Verified with `kubectl auth can-i` and with real
+  server-side dry-run patches as the agent identity (everything else is `Forbidden`).
+* **Separate tokens** for the webhook and for approvals; untrusted alert text is sanitised and injection attempts are flagged.
+* **Resting state is dry run:** after the one real rollback the agent was switched back to `approval` / `dry_run=true`.
+* **Reversible, reviewed changes:** every cluster change was shown as a diff first (for example the Stage B change was exactly
+  `AIOPS_DRY_RUN: "true" -> "false"`).
+* **Secrets hygiene:** Sealed Secrets without a ClusterRole; demo database credentials found in Git history were rotated with a
+  rehearsed, reversible procedure ([`docs/security-legacy-credential-rotation.md`](docs/security-legacy-credential-rotation.md));
+  a test fails if the leaked values ever return.
+
+## Results (measured, single runs on a laptop `kind` cluster)
+
+| Scenario | Alert reached the agent | Diagnosis | Outcome |
+|---|---|---|---|
+| CrashLoopBackOff (`PORT=notaport`) | 119.3 s after injection | `crash_loop` / `invalid_configuration`, 0.9 | Approved by a human; **one real `rollout_undo`**; recovery verified 10 s after approval; audit chain valid |
+| OOMKilled (memory limit 6Mi) | 103.3 s | `oom_killed` / `memory_limit_reduced`, 0.9 | Held at `requires_approval`; recovered manually; verified |
+| Readiness probe failure (`/healthz` 404) | 216.0 s | `readiness_failure` / `probe_misconfigured`, 0.75 | Held at `requires_approval`; recovered manually; verified |
+
+Detection time is dominated by Grafana's evaluation and pending period; the agent itself takes about 0.2 s. All runs, with Prometheus
+and Grafana timings, are in [`docs/aiops-demo.md`](docs/aiops-demo.md). **No MTTR-improvement claim is made.**
+GitOps: Argo CD synced the sandbox once by hand (8 objects, Healthy about 27 s later, no change to any existing resource).
+
+## Testing
+
+* `make aiops-venv && make aiops-test`: **366 tests** (unit, integration against fake Kubernetes/Prometheus/Loki, manifest and RBAC
+  checks, safety and negative tests, a guard against leaked credentials). `make aiops-lint`: YAML, shellcheck, Python compile.
+* Live checks scripted in `aiops/scenarios/` (`scenario.sh` inject / observe / recover / verify) and
+  `aiops/scenarios/tools/approval_check.py` (27 approve checks and 13 reject checks, including invalid tokens and tamper attempts).
+* The GitHub Actions workflows run the Go tests, build and scan the application images. The AIOps test suite runs locally through
+  `make`; it is not wired into GitHub Actions.
+
+## Honest limitations
+
+Three incident families; lexical (not semantic) retrieval; faults shorter than about two minutes may not alert; heuristic confidence;
+`kind` does not enforce NetworkPolicy; Argo CD's controller is cluster-admin equivalent (chart default) and manages only a sandbox
+namespace; application images use `:latest`; local cluster only. The Terraform/AWS roadmap was deliberately not started.
+
+## Documentation
+
+| Document | What it covers |
+|---|---|
+| [`docs/aiops-architecture.md`](docs/aiops-architecture.md) | Components, data flow, the LangGraph workflow, policy, security model, limits |
+| [`docs/aiops-setup.md`](docs/aiops-setup.md) | Build, test, install order, remediation stages, GitOps, troubleshooting |
+| [`docs/aiops-demo.md`](docs/aiops-demo.md) | Guided demo of the three scenarios with measured timings |
+| [`docs/aiops-learning-guide.md`](docs/aiops-learning-guide.md) | Beginner explanation of every part, labs, interview questions |
+| [`docs/interview-and-demo-guide.md`](docs/interview-and-demo-guide.md) | Demo checklist and interview explanation |
+| [`docs/security-legacy-credential-rotation.md`](docs/security-legacy-credential-rotation.md) | The credential exposure, rotation procedure and rehearsal |
+| [`monitoring/README.md`](monitoring/README.md) | Loki, Alloy and Grafana install, backup/restore, rollback |
+| [`aiops/scenarios/README.md`](aiops/scenarios/README.md) | The three fault scenarios (isolated to `backend-sim`) |
+
+---
+
+# The application and the original masterclass material
+
+## SkillPulse — GitHub Actions & Kubernetes Masterclass (original tutorial)
 
 A small, real application with a real CI/CD pipeline. The app — SkillPulse — lets you track skills you're learning and the hours you put in. The point isn't the app. The point is everything around it: how a single `git push` becomes a running update on a server in under two minutes, with no human pressing any button.
 
@@ -171,7 +297,8 @@ GET    /health                  DB ping for healthchecks
 ## Run it locally
 
 ```bash
-cp .env.example .env             # fill in DOCKERHUB_USERNAME (anything works for local)
+cp .env.example .env             # then replace every CHANGE_ME with a random value (e.g. `openssl rand -hex 24`)
+                                 # and set DOCKERHUB_USERNAME (anything works for local)
 docker compose up -d --build
 ```
 
@@ -389,22 +516,9 @@ Same app. Same pipeline shape. Different runtime — and a lot more power.
 
 ---
 
-## AIOps: GitOps-driven incident response (read-only by default)
+## AIOps
 
-A LangGraph agent that detects Kubernetes incidents from Grafana alerts, collects real evidence (Kubernetes,
-Prometheus, Loki), diagnoses the likely cause, retrieves a runbook, proposes a remediation, applies a deterministic
-safety policy, and writes an audit log and an incident report. It runs **read-only in diagnose mode**; the
-approval-gated remediation and the Argo CD GitOps delivery are written and tested but not enabled.
-
-| Document | What it covers |
-|---|---|
-| [`docs/aiops-architecture.md`](docs/aiops-architecture.md) | Components, data flow, the LangGraph workflow, policy, security model, limits |
-| [`docs/aiops-setup.md`](docs/aiops-setup.md) | Build, test, install order, GitOps and remediation steps, troubleshooting |
-| [`docs/aiops-demo.md`](docs/aiops-demo.md) | A guided demo of the three failure scenarios with real measured timings |
-| [`docs/aiops-learning-guide.md`](docs/aiops-learning-guide.md) | Beginner explanation of every part, labs, interview questions |
-| [`aiops/scenarios/README.md`](aiops/scenarios/README.md) | Crash loop, OOMKilled and readiness scenarios (isolated to `backend-sim`) |
-| [`monitoring/README.md`](monitoring/README.md) | Loki, Alloy and Grafana install, backup/restore and rollback runbook |
-
+See the **SRE / AIOps** overview at the top of this page and the documents it links.
 Quick start: `make aiops-venv && make aiops-test`.
 
 ---
