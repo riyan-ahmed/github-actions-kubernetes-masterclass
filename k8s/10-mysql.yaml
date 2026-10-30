@@ -1,15 +1,6 @@
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: skillpulse-db
-  namespace: skillpulse
-type: Opaque
-stringData:
-  MYSQL_ROOT_PASSWORD: rootpassword123
-  MYSQL_DATABASE: skillpulse
-  MYSQL_USER: skillpulse
-  MYSQL_PASSWORD: skillpulse123
+# The Secret `skillpulse-db` is NOT defined here: `make secret` creates it from the git-ignored k8s/db-secret.env
+# (random values are generated on first use). Never put credentials in this file.
 ---
 apiVersion: v1
 kind: ConfigMap

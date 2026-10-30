@@ -22,7 +22,12 @@ load: ## Push built images into the kind node
 	kind load docker-image $(BACKEND_IMAGE)  --name $(CLUSTER)
 	kind load docker-image $(FRONTEND_IMAGE) --name $(CLUSTER)
 
-apply: ## Apply manifests and wait for rollouts
+secret: ## Create the DB Secret from the git-ignored k8s/db-secret.env (random values generated if the file is missing)
+	@kubectl apply -f k8s/00-namespace.yaml >/dev/null
+	@[ -f k8s/db-secret.env ] || ( umask 077; printf 'MYSQL_ROOT_PASSWORD=%s\nMYSQL_DATABASE=skillpulse\nMYSQL_USER=skillpulse\nMYSQL_PASSWORD=%s\n' "$$(openssl rand -hex 24)" "$$(openssl rand -hex 24)" > k8s/db-secret.env; echo "generated k8s/db-secret.env (git-ignored)" )
+	@kubectl create secret generic skillpulse-db -n $(NAMESPACE) --from-env-file=k8s/db-secret.env --dry-run=client -o yaml | kubectl apply -f - >/dev/null && echo "secret skillpulse-db applied"
+
+apply: secret ## Apply manifests and wait for rollouts
 	kubectl apply -f k8s/00-namespace.yaml \
 	              -f k8s/10-mysql.yaml \
 	              -f k8s/20-backend.yaml \
@@ -41,7 +46,7 @@ logs: ## Tail all three workloads at once
 	@kubectl logs -n $(NAMESPACE) -l 'app in (mysql,backend,frontend)' --all-containers --tail=50 -f --max-log-requests=10
 
 mysql: ## Open a mysql shell into the StatefulSet pod
-	kubectl exec -it -n $(NAMESPACE) mysql-0 -- mysql -uskillpulse -pskillpulse123 skillpulse
+	kubectl exec -it -n $(NAMESPACE) mysql-0 -- sh -c 'MYSQL_PWD="$$MYSQL_PASSWORD" mysql -u"$$MYSQL_USER" "$$MYSQL_DATABASE"'
 
 restart: ## Rebuild + reload images, roll backend + frontend
 	$(MAKE) build

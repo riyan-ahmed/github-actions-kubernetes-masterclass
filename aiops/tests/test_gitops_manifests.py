@@ -1,5 +1,6 @@
 """Argo CD / GitOps manifests: manual sync, no pruning, no adoption surprises, no plaintext secrets."""
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -271,3 +272,25 @@ def test_seal_script_refuses_other_environments_credentials_for_the_sandbox():
     script = (REPO / "scripts" / "seal-db-secret.sh").read_text()
     assert "DEFAULT_ENV=k8s/overlays/sandbox/db-secret.env" in script
     assert "overlays/stg/*|*overlays/prd/*" in script
+
+
+# ---- the credentials that were once committed must never come back ---------------------------------
+LEAKED_SHA256 = {
+    "f980fe6c75d3f80758a47a4717cd81bb9534fa94a63891fad5e63c43a6f43be5",
+    "ceb9729635536fafa71f41337ff48761d1dfb72174f61e49e1cc7072e121557d",
+}
+
+
+def test_no_known_leaked_credential_is_tracked_anywhere():
+    """Hashes only, so this test file does not itself contain the leaked values."""
+    import hashlib
+    tracked = subprocess.run(["git", "ls-files"], cwd=REPO, capture_output=True, text=True, check=True).stdout.split()
+    assert tracked, "git ls-files returned nothing"
+    needles = LEAKED_SHA256
+    for f in tracked:
+        p = REPO / f
+        if not p.is_file() or p.stat().st_size > 2_000_000:
+            continue
+        data = p.read_bytes()
+        for tok in re.findall(rb"[A-Za-z0-9_]{10,20}", data):
+            assert hashlib.sha256(tok).hexdigest() not in needles, f"leaked credential found in {f}"
