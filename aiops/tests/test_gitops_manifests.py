@@ -100,7 +100,10 @@ def render(path: Path) -> list[dict]:
 @pytest.mark.parametrize("env,ns", [("stg", "skillpulse-stg"), ("prd", "skillpulse-prd"), ("sandbox", "skillpulse-gitops")])
 def test_overlay_renders_safe_objects(env, ns):
     docs = render(GITOPS / env)
-    assert sorted(d["kind"] for d in docs) == ["ConfigMap", "Deployment", "Deployment", "Service", "Service", "Service", "StatefulSet"]
+    expected = ["ConfigMap", "Deployment", "Deployment", "Service", "Service", "Service", "StatefulSet"]
+    if env == "sandbox":   # the sandbox also ships its own encrypted credentials
+        expected = sorted(expected + ["SealedSecret"])
+    assert sorted(d["kind"] for d in docs) == expected
     assert {d["metadata"]["namespace"] for d in docs} == {ns}
     for d in docs:
         assert d["metadata"]["annotations"] == {"argocd.argoproj.io/sync-options": "Prune=false,Delete=false"}, d["metadata"]["name"]
@@ -253,3 +256,18 @@ def test_install_docs_create_the_sandbox_namespace_before_any_helm_install():
     assert install.index("kubectl create namespace skillpulse-gitops") < install.index("helm install sealed-secrets")
     assert install.index("helm install sealed-secrets") < install.index("helm install argocd")
     assert "validate_install_order.py" in install
+
+
+def test_sandbox_sealed_secret_is_encrypted_pinned_to_the_sandbox_and_has_its_own_credentials():
+    sealed = yaml.safe_load((GITOPS / "secrets" / "sandbox" / "sealed-secret.yaml").read_text())
+    assert sealed["kind"] == "SealedSecret" and sealed["metadata"]["namespace"] == "skillpulse-gitops"
+    assert sealed["spec"]["template"]["metadata"]["namespace"] == "skillpulse-gitops"
+    assert set(sealed["spec"]["encryptedData"]) == {"MYSQL_ROOT_PASSWORD", "MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD"}
+    assert all(v.startswith("Ag") and len(v) > 200 for v in sealed["spec"]["encryptedData"].values())
+    assert not {"data", "stringData"} & set(sealed["spec"])
+
+
+def test_seal_script_refuses_other_environments_credentials_for_the_sandbox():
+    script = (REPO / "scripts" / "seal-db-secret.sh").read_text()
+    assert "DEFAULT_ENV=k8s/overlays/sandbox/db-secret.env" in script
+    assert "overlays/stg/*|*overlays/prd/*" in script

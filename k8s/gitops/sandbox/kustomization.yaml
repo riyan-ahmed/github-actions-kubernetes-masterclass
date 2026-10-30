@@ -9,6 +9,7 @@ namespace: skillpulse-gitops
 
 resources:
   - ../../base
+  - ../secrets/sandbox        # SealedSecret skillpulse-db (encrypted; sandbox-only credentials)
 
 components:
   - ../components/gitops-safety

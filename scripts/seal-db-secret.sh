@@ -22,10 +22,13 @@ done
 case "$ENV_NAME" in
   stg) NS=skillpulse-stg; DEFAULT_ENV=k8s/overlays/stg/db-secret.env ;;
   prd) NS=skillpulse-prd; DEFAULT_ENV=k8s/overlays/prd/db-secret.env ;;
-  sandbox) NS=skillpulse-gitops; DEFAULT_ENV=k8s/overlays/stg/db-secret.env ;;   # sandbox reuses the stg values unless --env-file is given
+  sandbox) NS=skillpulse-gitops; DEFAULT_ENV=k8s/overlays/sandbox/db-secret.env ;;   # sandbox-specific credentials: never the stg or prd file
   *) echo "environment must be stg, prd or sandbox" >&2; exit 2 ;;
 esac
 ENV_FILE="${ENV_FILE:-$DEFAULT_ENV}"
+if [ "$ENV_NAME" = sandbox ]; then   # refuse to seal another environment's credentials into the sandbox
+  case "$ENV_FILE" in *overlays/stg/*|*overlays/prd/*|*overlays/dev/*) echo "sandbox must use its own credentials file, not $ENV_FILE" >&2; exit 1 ;; esac
+fi
 [ -f "$ENV_FILE" ] || { echo "missing $ENV_FILE (git-ignored credentials file)" >&2; exit 1; }
 command -v kubeseal >/dev/null || { echo "kubeseal not found (brew install kubeseal)" >&2; exit 1; }
 
