@@ -3,7 +3,7 @@
 | File | Purpose |
 |---|---|
 | `install/argocd-values.yaml` | Minimal Argo CD (chart `argo/argo-cd` 10.11.6): no Dex, no notifications, no ApplicationSet pods, no web terminal, annotation tracking |
-| `project.yaml` | `AppProject skillpulse`: one repo, three namespaces, **no cluster-scoped resources**, no plaintext `Secret` |
+| `project.yaml` | `AppProject skillpulse`: one repo, ONE namespace (`skillpulse-gitops`, sandbox only; stg/prd after review), **no cluster-scoped resources**, no plaintext `Secret` |
 | `apps/skillpulse-sandbox.yaml` | Non-adopting: deploys into a new namespace `skillpulse-gitops`. Sync this first |
 | `apps/skillpulse-stg.yaml`, `apps/skillpulse-prd.yaml` | Adopt the existing workloads on first sync: read the migration review first |
 

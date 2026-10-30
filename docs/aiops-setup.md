@@ -167,7 +167,7 @@ limited to a throw-away workload and why it must never be extended to a real app
 
 ## 4. GitOps with Argo CD and Sealed Secrets  **(not yet applied)**
 
-Everything below is written and validated offline: manifests against Argo CD's CRD schemas, overlays rendered,
+Everything below is written and validated offline (and rehearsed on a disposable cluster, section 4.1a): manifests, overlays,
 24 tests. Nothing is installed.
 
 ### 4.1 Argo CD migration review (read this before syncing stg or prd)
@@ -183,18 +183,40 @@ repository, from real read-only checks:
 | Risk: StatefulSet and PVCs | `volumeClaimTemplates` are identical to the live ones, so there is no immutable-field error. PVCs are not in the manifests and the project does not allow deleting anything (`Prune=false`, `Delete=false`) |
 | Risk: image tag | The base uses `trainwithshubham/*:latest`. Argo CD will not notice a new image behind `latest`. Pin images in the overlays when CI is wired in |
 | Risk: Secret ownership | The Sealed Secrets controller refuses to overwrite an existing Secret. Use `--adopt-existing` once, deliberately (4.3) |
-| Risk: Argo CD's own power | The application controller's ClusterRole uses wildcard resources. The `AppProject` is the limiting control: three namespaces, no cluster-scoped kinds, no plaintext `Secret` |
+| Risk: Argo CD's own power | The application controller's ClusterRole uses wildcard resources. The `AppProject` is the limiting control: one namespace (`skillpulse-gitops`; stg and prd are added only after a separate review), no cluster-scoped kinds, no plaintext `Secret` |
 | Risk: tracking | Tracking is by annotation (`argocd.argoproj.io/tracking-id`), set in the install values. The agent refuses to modify any Deployment carrying that metadata |
 | Applications are manual-sync | No `automated` block, no self-heal, no prune, no finalizer; tests fail if any of that appears |
 
 Recommended order: **sandbox first** (a new namespace, adopts nothing), then stg after the review, then prd.
 
+### 4.1a Sandbox preflight (measured on a disposable kind cluster, 2026-10-30)
+
+Both installs were rehearsed on a throw-away `kind` cluster with its own kubeconfig; the `skillpulse` cluster was not touched.
+
+| Item | Result |
+|---|---|
+| Argo CD 10.11.6 (app v3.5.6) | `helm install --wait` took about 90 s; 4 pods + 1 completed init Job, 0 restarts; 3 CRDs, 2 ClusterRoles, 2 ClusterRoleBindings, 4 NetworkPolicies. Requests 225m CPU / 576Mi (limits 1152Mi) |
+| Argo CD cluster-wide power | The application-controller ClusterRole uses wildcards. The `AppProject` is the control: a test Application aimed at `kube-system` was refused (`InvalidSpecError ... do not match any of the allowed destinations`); `Secret` and cluster-scoped kinds are not whitelisted |
+| Manual sync | Before the first sync the Application was `OutOfSync` and **created nothing**. One manual sync created the 7 sandbox objects (tracked by annotation, each with `Prune=false,Delete=false`). **Deleting the Application removed none of them** (no cascade) |
+| Sealed Secrets, chart default | A ClusterRole with get/list/create/update/**delete** on Secrets in every namespace. **Rejected** |
+| Sealed Secrets, scoped (`sealed-secrets-values.yaml`) | No ClusterRole; namespaced Roles in `sealed-secrets` and `skillpulse-gitops` only; controller Ready with 0 errors. Installing it in `kube-system` fails (it needs to list in its own namespace), hence its own namespace |
+| Seal / unseal | Sealed with `kubeseal` 0.41.2 (checksum-verified): no plaintext in the file; unsealed in `skillpulse-gitops`; the same ciphertext replayed into another namespace produced **no** Secret |
+| Uninstall | `helm uninstall` removes the workloads and ClusterRoles but **keeps the CRDs** (so Applications survive) and any already-unsealed Secrets and synced workloads |
+| Repository access | The repo is public, so no credentials are needed. `main` has no `k8s/gitops` yet, so the sandbox Application tracks `feature/aiops-self-healing` until the merge |
+
+Rollback: `kubectl -n argocd delete application skillpulse-sandbox` (no cascade), `helm uninstall argocd -n argocd`,
+`helm uninstall sealed-secrets -n sealed-secrets`; only after that, deliberately: delete the CRDs
+(`kubectl delete crd applications.argoproj.io applicationsets.argoproj.io appprojects.argoproj.io sealedsecrets.bitnami.com`),
+then the namespaces `argocd`, `sealed-secrets` and `skillpulse-gitops` (the last one holds the sandbox MySQL volume).
+
 ### 4.2 Install (each step needs approval)
 ```bash
-# Sealed Secrets (Docker Hub OCI chart; image bitnami/sealed-secrets-controller:0.41.2, both verified pullable)
+# Sealed Secrets, SANDBOX-SCOPED (the chart default is a ClusterRole with get/list/create/update/DELETE on Secrets in every
+# namespace; gitops/argocd/install/sealed-secrets-values.yaml removes it: namespaced Roles in `sealed-secrets` and
+# `skillpulse-gitops` only, own namespace, no kube-system). Validated on a disposable kind cluster.
 helm install sealed-secrets oci://registry-1.docker.io/bitnamicharts/sealed-secrets --version 2.22.0 \
-  -n kube-system --set fullnameOverride=sealed-secrets-controller
-brew install kubeseal
+  -n sealed-secrets --create-namespace -f gitops/argocd/install/sealed-secrets-values.yaml
+brew install kubeseal        # or download kubeseal 0.41.2 from the GitHub release and verify its checksum
 
 # Argo CD: 4 pods, 225m CPU / 576Mi requested, 3 CRDs, 2 ClusterRoles
 helm install argocd argo/argo-cd --version 10.11.6 -n argocd --create-namespace -f gitops/argocd/install/argocd-values.yaml

@@ -19,10 +19,12 @@ APPS = {p.stem: yaml.safe_load(p.read_text()) for p in sorted((ARGO / "apps").gl
 
 
 # ---- AppProject -------------------------------------------------------------------------------
-def test_project_only_allows_the_three_skillpulse_namespaces():
+def test_project_only_allows_the_sandbox_namespace():
+    """Initial sandbox test: stg and prd destinations are added only after a separate review."""
     ns = {d["namespace"] for d in PROJECT["spec"]["destinations"]}
-    assert ns == {"skillpulse-stg", "skillpulse-prd", "skillpulse-gitops"}
-    assert not ns & {"kube-system", "monitoring", "aiops", "argocd", "default", "skillpulse-dev", "skillpulse", "*"}
+    assert ns == {"skillpulse-gitops"}
+    assert not ns & {"kube-system", "monitoring", "aiops", "argocd", "default", "skillpulse-dev", "skillpulse",
+                     "skillpulse-stg", "skillpulse-prd", "*"}
     assert all(d["server"] == "https://kubernetes.default.svc" for d in PROJECT["spec"]["destinations"])
 
 
@@ -59,9 +61,17 @@ def test_application_targets_an_allowed_destination_repo_and_existing_path(name)
     app = APPS[name]
     assert app["spec"]["project"] == "skillpulse"
     assert app["spec"]["source"]["repoURL"] in PROJECT["spec"]["sourceRepos"]
-    assert app["spec"]["destination"]["namespace"] in {d["namespace"] for d in PROJECT["spec"]["destinations"]}
+    allowed = {d["namespace"] for d in PROJECT["spec"]["destinations"]}
+    if name == "skillpulse-sandbox":
+        assert app["spec"]["destination"]["namespace"] in allowed
+    else:   # stg/prd Applications are written but must stay unusable until the project is widened after review
+        assert app["spec"]["destination"]["namespace"] not in allowed
     assert app["spec"]["source"]["targetRevision"] not in ("", "*", None)
     assert (REPO / app["spec"]["source"]["path"] / "kustomization.yaml").exists()
+
+
+def test_sandbox_application_tracks_the_feature_branch_not_main():
+    assert APPS["skillpulse-sandbox"]["spec"]["source"]["targetRevision"] == "feature/aiops-self-healing"
 
 
 def test_adopting_applications_carry_a_migration_warning_and_the_sandbox_does_not_adopt():
@@ -219,3 +229,18 @@ def test_seal_script_rejects_unknown_environment_and_missing_file(tmp_path):
     assert r.returncode == 2
     r, _ = run_script(tmp_path / "b", FAKE_SEAL, "prd")
     assert r.returncode == 1 and "missing" in r.stderr
+
+
+# ---- Sealed Secrets install values (sandbox-scoped, no cluster-wide Secret access) -----------------
+SEALED = yaml.safe_load((ARGO / "install" / "sealed-secrets-values.yaml").read_text())
+
+
+def test_sealed_secrets_has_no_cluster_role_and_is_scoped_to_the_sandbox():
+    assert SEALED["rbac"]["clusterRole"] is False and SEALED["rbac"]["namespacedRoles"] is True
+    assert set(SEALED["additionalNamespaces"]) == {"sealed-secrets", "skillpulse-gitops"}
+    assert "--all-namespaces=false" in SEALED["args"]
+    assert "--additional-namespaces=skillpulse-gitops,sealed-secrets" in SEALED["args"]
+
+
+def test_seal_script_targets_the_scoped_controller_namespace():
+    assert "SEALED_SECRETS_NAMESPACE:-sealed-secrets" in (REPO / "scripts" / "seal-db-secret.sh").read_text()

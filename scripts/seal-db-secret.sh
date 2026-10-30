@@ -35,7 +35,7 @@ TMP="$(mktemp "$OUT_DIR/.sealed.XXXXXX")"; trap 'rm -f "$TMP"' EXIT
 
 kubectl create secret generic skillpulse-db --namespace "$NS" --from-env-file="$ENV_FILE" --dry-run=client -o yaml \
   | kubeseal --controller-name "${SEALED_SECRETS_CONTROLLER:-sealed-secrets-controller}" \
-             --controller-namespace "${SEALED_SECRETS_NAMESPACE:-kube-system}" --format yaml > "$TMP"
+             --controller-namespace "${SEALED_SECRETS_NAMESPACE:-sealed-secrets}" --format yaml > "$TMP"
 
 # refuse anything that is not an encrypted SealedSecret
 grep -q '^kind: SealedSecret' "$TMP" || { echo "output is not a SealedSecret: refusing to write it" >&2; exit 1; }
