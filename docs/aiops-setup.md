@@ -183,7 +183,7 @@ repository, from real read-only checks:
 | Risk: StatefulSet and PVCs | `volumeClaimTemplates` are identical to the live ones, so there is no immutable-field error. PVCs are not in the manifests and the project does not allow deleting anything (`Prune=false`, `Delete=false`) |
 | Risk: image tag | The base uses `trainwithshubham/*:latest`. Argo CD will not notice a new image behind `latest`. Pin images in the overlays when CI is wired in |
 | Risk: Secret ownership | The Sealed Secrets controller refuses to overwrite an existing Secret. Use `--adopt-existing` once, deliberately (4.3) |
-| Risk: Argo CD's own power | The application controller's ClusterRole uses wildcard resources. The `AppProject` is the limiting control: one namespace (`skillpulse-gitops`; stg and prd are added only after a separate review), no cluster-scoped kinds, no plaintext `Secret` |
+| Risk: Argo CD's own power | The application controller's and the server's ClusterRoles are `* * *` (**cluster-admin equivalent**, the chart default, verified live: both can read Secrets in every namespace); Argo CD is therefore a high-value target: keep it port-forward-only and restrict who can reach it. The `AppProject` is the limiting control: one namespace (`skillpulse-gitops`; stg and prd are added only after a separate review), no cluster-scoped kinds, no plaintext `Secret` |
 | Risk: tracking | Tracking is by annotation (`argocd.argoproj.io/tracking-id`), set in the install values. The agent refuses to modify any Deployment carrying that metadata |
 | Applications are manual-sync | No `automated` block, no self-heal, no prune, no finalizer; tests fail if any of that appears |
 
@@ -211,20 +211,27 @@ then the namespaces `argocd`, `sealed-secrets` and `skillpulse-gitops` (the last
 
 ### 4.2 Install (each step needs approval)
 ```bash
-# Sealed Secrets, SANDBOX-SCOPED (the chart default is a ClusterRole with get/list/create/update/DELETE on Secrets in every
-# namespace; gitops/argocd/install/sealed-secrets-values.yaml removes it: namespaced Roles in `sealed-secrets` and
-# `skillpulse-gitops` only, own namespace, no kube-system). Validated on a disposable kind cluster.
+# 0. Required namespaces FIRST. The scoped Sealed Secrets chart creates a Role inside `skillpulse-gitops`, so that namespace
+#    must exist before the helm install (otherwise: "namespaces skillpulse-gitops not found" and a crash-looping controller).
+#    Created by hand because the AppProject allows no cluster-scoped resources.
+kubectl config current-context                                    # kind-skillpulse
+kubectl create namespace skillpulse-gitops
+python3 gitops/validate_install_order.py                          # offline: every namespace the charts need is created first
+
+# 1. Sealed Secrets, SANDBOX-SCOPED (the chart default is a ClusterRole with get/list/create/update/DELETE on Secrets in every
+#    namespace; gitops/argocd/install/sealed-secrets-values.yaml removes it: namespaced Roles in `sealed-secrets` and
+#    `skillpulse-gitops` only, own namespace, no kube-system). Validated on a disposable kind cluster.
 helm install sealed-secrets oci://registry-1.docker.io/bitnamicharts/sealed-secrets --version 2.22.0 \
   -n sealed-secrets --create-namespace -f gitops/argocd/install/sealed-secrets-values.yaml
 brew install kubeseal        # or download kubeseal 0.41.2 from the GitHub release and verify its checksum
 
-# Argo CD: 4 pods, 225m CPU / 576Mi requested, 3 CRDs, 2 ClusterRoles
+# 2. Argo CD: 4 pods, 225m CPU / 576Mi requested, 3 CRDs, 2 ClusterRoles (the install takes several minutes on a busy node)
 helm install argocd argo/argo-cd --version 10.11.6 -n argocd --create-namespace -f gitops/argocd/install/argocd-values.yaml
 kubectl -n argocd rollout status deployment/argocd-server
 kubectl -n argocd port-forward svc/argocd-server 8081:80 &      # initial admin password: kubectl -n argocd get secret argocd-initial-admin-secret
 
+# 3. AppProject and the (manual-sync) sandbox Application
 kubectl apply -f gitops/argocd/project.yaml
-kubectl create namespace skillpulse-gitops                       # created by hand: the project allows no cluster-scoped resources
 kubectl apply -f gitops/argocd/apps/skillpulse-sandbox.yaml
 ```
 The repository must contain `k8s/gitops/**` on the branch the Applications track (`main`): merge before syncing.

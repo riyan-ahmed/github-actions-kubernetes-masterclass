@@ -244,3 +244,12 @@ def test_sealed_secrets_has_no_cluster_role_and_is_scoped_to_the_sandbox():
 
 def test_seal_script_targets_the_scoped_controller_namespace():
     assert "SEALED_SECRETS_NAMESPACE:-sealed-secrets" in (REPO / "scripts" / "seal-db-secret.sh").read_text()
+
+
+def test_install_docs_create_the_sandbox_namespace_before_any_helm_install():
+    """A scoped Sealed Secrets chart creates a Role in skillpulse-gitops: the namespace must exist first (found in practice)."""
+    text = (REPO / "docs" / "aiops-setup.md").read_text()
+    install = text.split("### 4.2 Install", 1)[1].split("### 4.3", 1)[0]
+    assert install.index("kubectl create namespace skillpulse-gitops") < install.index("helm install sealed-secrets")
+    assert install.index("helm install sealed-secrets") < install.index("helm install argocd")
+    assert "validate_install_order.py" in install
