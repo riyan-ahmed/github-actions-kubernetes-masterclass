@@ -1,6 +1,6 @@
 # AIOps agent image: multi-stage, Chainguard Python (Wolfi), non-root, no shell in the runtime image.
 # Build context: aiops/
-#   docker build --platform linux/arm64 -t skillpulse-aiops-agent:0.5.0 -f aiops/Dockerfile aiops/
+#   docker build --platform linux/arm64 -t skillpulse-aiops-agent:0.5.1 -f aiops/Dockerfile aiops/
 #
 # Base images are pinned by digest for reproducibility. To update: pull the new images, run
 # aiops/docker/container_check.py and a Trivy scan, then change both digests deliberately.

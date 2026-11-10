@@ -158,20 +158,94 @@ def test_the_agent_never_merges_or_pushes_to_the_base_branch():
     assert 'method="PUT"' not in src and "git/refs/heads" not in src.replace("git/ref/heads", "")
 
 
-def test_github_enabled_makes_the_pr_live_even_while_cluster_writes_stay_dry_run(policy, tmp_path):
-    from aiops.agent.actions import execute_action
-    called = {}
+def test_pr_dry_run_is_its_own_switch_and_ignores_the_kubernetes_dry_run(policy, tmp_path):
     import aiops.agent.actions as actions
+    from aiops.agent.actions import execute_action
+    seen = []
     orig = actions.propose_config_change
-    actions.propose_config_change = lambda **kw: called.update(kw) or {"mode": "pull_request", "url": "u"}
+    actions.propose_config_change = lambda **kw: seen.append(kw["dry_run"]) or {"mode": "pull_request", "url": "u"}
     try:
-        for enabled in (True, False):
-            s = Settings(audit_dir=str(tmp_path), github_enabled=enabled)
+        for k8s_dry, pr_dry, github, expect in [(True, False, True, False), (False, True, True, True),
+                                                (True, True, True, True), (False, False, False, False)]:
+            s = Settings(audit_dir=str(tmp_path), dry_run=k8s_dry, pr_dry_run=pr_dry, github_enabled=github)
             execute_action(action_id="propose_config_pr", params=PARAMS, target={"namespace": NS, "name": APP}, kube=None,
-                           prom=None, policy=policy, settings=s, incident_id="i", rationale="r", dry_run=True)
-            assert called["dry_run"] is (not enabled)
+                           prom=None, policy=policy, settings=s, incident_id="i", rationale="r", dry_run=k8s_dry)
+            assert seen[-1] is expect, (k8s_dry, pr_dry, github)
     finally:
         actions.propose_config_change = orig
+
+
+def test_defaults_are_safe_and_env_parsing_is_explicit(monkeypatch):
+    s = Settings()
+    assert s.pr_dry_run is True and s.dry_run is True and s.github_enabled is False
+    monkeypatch.setenv("AIOPS_MODE", "approval")
+    monkeypatch.setenv("AIOPS_DRY_RUN", "true")
+    monkeypatch.setenv("AIOPS_GITHUB_ENABLED", "true")
+    monkeypatch.setenv("AIOPS_PR_DRY_RUN", "false")
+    e = Settings.from_env()
+    assert e.dry_run is True and e.pr_dry_run is False and e.github_enabled is True
+    monkeypatch.delenv("AIOPS_PR_DRY_RUN")
+    assert Settings.from_env().pr_dry_run is True
+
+
+def test_live_pr_with_kubernetes_dry_run_on_opens_a_real_pr_and_never_touches_the_cluster(make_deps, monkeypatch):
+    """AIOPS_DRY_RUN=true + AIOPS_PR_DRY_RUN=false: the PR is real, no Kubernetes write of any kind is issued."""
+    data = copy.deepcopy(Policy.load(ROOT / "policies" / "policy.yaml").data)
+    data["environments"]["skillpulse-stg"]["pr_without_preapproval"] = ["propose_config_pr"]
+    data["gitops_targets"]["skillpulse-stg"]["backend-sim"] = {
+        "path": "k8s/gitops/oom-demo/patches/resources.yaml", "container": "backend", "patch_requests": False, "argocd_app": APP}
+    deps, _, apps = make_deps("oom", mode="approval", dry_run=True, history=False)
+    deps.policy = Policy(data)
+    deps.settings = Settings(mode="approval", dry_run=True, pr_dry_run=False, github_enabled=True, github_token="t",
+                             github_repo="o/r", audit_dir=deps.settings.audit_dir)
+    created = []
+
+    def handler(req):
+        p = req.url.path
+        if req.method == "GET" and "/git/ref/" in p:
+            return httpx.Response(200, json={"object": {"sha": "abc"}})
+        if req.method == "GET" and "/contents/" in p:
+            return httpx.Response(404, json={})
+        if req.method in ("POST", "PUT") and p.endswith(("/git/refs", "/patches/resources.yaml")):
+            return httpx.Response(201, json={})
+        if req.method == "POST" and p.endswith("/pulls"):
+            created.append(1)
+            return httpx.Response(201, json={"html_url": "https://github.com/o/r/pull/7", "number": 7, "created_at": "2026-11-10T10:00:10Z"})
+        return httpx.Response(404)
+    import aiops.agent.actions as actions
+    real = actions.propose_config_change
+    monkeypatch.setattr(actions, "propose_config_change", lambda **kw: real(**kw, transport=httpx.MockTransport(handler)))
+    from aiops.agent.graph import build_graph
+    st = run_incident(build_graph(deps), alert())
+    assert created == [1] and st["execution"]["status"] == "executed" and st["execution"]["detail"]["mode"] == "pull_request"
+    assert apps.patches == [], "no Deployment patch (not even a dry-run one) may be issued"
+    events = [e["event"] for e in deps.audit.events(st["incident_id"])]
+    assert "policy_decision" in events and "action_executed" in events and deps.audit.verify_chain()[0]
+
+
+@pytest.mark.parametrize("action", ["rollout_undo", "restart_deployment"])
+def test_direct_kubernetes_writes_stay_blocked_even_when_prs_are_live(policy, action):
+    """pr_dry_run=false must not change what the policy lets the agent do to the cluster."""
+    for mode in ("approval", "auto"):
+        d = decide(policy, action=action, params={}, mode=mode)
+        assert d.decision == "denied" and not d.executable
+
+
+def test_kubernetes_writes_keep_their_own_dry_run_flag(policy):
+    from aiops.agent.actions import execute_action
+
+    class Kube:
+        calls = []
+
+        def restart(self, ns, name, ts, dry_run):
+            self.calls.append(dry_run)
+            return {}
+
+    kube = Kube()
+    s = Settings(dry_run=True, pr_dry_run=False, github_enabled=True)
+    execute_action(action_id="restart_deployment", params={}, target={"namespace": "skillpulse-stg", "name": "backend-sim"},
+                   kube=kube, prom=None, policy=policy, settings=s, incident_id="i", rationale="", dry_run=s.dry_run)
+    assert kube.calls == [True], "Kubernetes writes follow AIOPS_DRY_RUN only"
 
 
 # ---- the tracker: merge -> Argo CD sync -> healthy -> audit timeline -----------------------------------
@@ -346,7 +420,7 @@ def test_graph_opens_a_pr_without_touching_the_cluster_then_tracks_recovery(make
         "path": "k8s/gitops/oom-demo/patches/resources.yaml", "container": "backend", "patch_requests": False, "argocd_app": APP}
     deps, graph, apps = make_deps("oom", mode="approval", dry_run=True, history=False)
     deps.policy = Policy(data)
-    deps.settings = Settings(mode="approval", dry_run=True, audit_dir=deps.settings.audit_dir, github_enabled=True,
+    deps.settings = Settings(mode="approval", dry_run=True, pr_dry_run=False, audit_dir=deps.settings.audit_dir, github_enabled=True,
                              github_token="t", github_repo="o/r", pr_wait_timeout_s=30, argocd_wait_timeout_s=30,
                              verify_timeout_s=30, tracker_poll_s=1)
     started = {}
@@ -439,9 +513,10 @@ def test_gitops_pr_overlay_enables_pr_creation_but_not_autonomy_or_live_cluster_
     assert len([e for e in ctr["env"] if e["name"] == "AIOPS_GITHUB_ENABLED"]) == 1
     assert env["AIOPS_GITHUB_ENABLED"]["value"] == "true" and env["AIOPS_GITHUB_BASE_BRANCH"]["value"] == "gitops-demo"
     assert env["AIOPS_MODE"]["value"] == "approval" and env["AIOPS_DRY_RUN"]["value"] == "true"
+    assert env["AIOPS_PR_DRY_RUN"]["value"] == "false", "real PRs, while AIOPS_DRY_RUN=true keeps Kubernetes writes dry-run"
     assert env["AIOPS_GITHUB_TOKEN"]["valueFrom"]["secretKeyRef"] == {"name": "aiops-github", "key": "token"}
     assert "value" not in env["AIOPS_GITHUB_TOKEN"], "the token is never inline"
-    assert ctr["image"].endswith(":0.5.0")
+    assert ctr["image"].endswith(":0.5.1")
     pol = yaml.safe_load(next(d for d in docs if d["kind"] == "ConfigMap")["data"]["policy.yaml"])
     assert pol["global"]["auto_remediation_enabled"] is False
     assert not any(d["kind"] in ("ClusterRole", "ClusterRoleBinding", "Secret") for d in docs)

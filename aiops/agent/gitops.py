@@ -91,8 +91,9 @@ def propose_config_change(*, settings, policy, incident_id: str, namespace: str,
     out = proposal_dir / f"{incident_id}.patch.yaml"
     out.write_text(f"# target: {target['path']}\n# {title}\n{content}")
     result = {"mode": "proposal_file", "path": str(out), "repo_path": target["path"], "title": title}
+    # `dry_run` here is the PR dry-run (AIOPS_PR_DRY_RUN), supplied by actions.py; it is NOT the Kubernetes dry-run.
     if dry_run or not settings.github_enabled:
-        result["note"] = "dry-run" if dry_run else "GitHub integration disabled; proposal written locally"
+        result["note"] = "PR dry-run" if dry_run else "GitHub integration disabled; proposal written locally"
         return result
     pr = GitHubPR(settings.github_repo, settings.github_token, settings.github_base_branch, transport)
     detail = pr.open_pr_detail(f"aiops/{incident_id}", target["path"], content, title, body)

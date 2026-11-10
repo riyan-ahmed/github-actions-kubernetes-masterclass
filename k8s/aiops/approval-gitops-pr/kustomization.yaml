@@ -1,6 +1,6 @@
 # GitOps pull-request remediation for the isolated oom-demo workload.
 #   - builds on approval-dryrun: stg/prd behaviour is unchanged and cluster writes stay in server-side DRY RUN
-#   - AIOPS_GITHUB_ENABLED=true: the agent may open a PR against ONE allow-listed file (policy gitops_targets)
+#   - AIOPS_GITHUB_ENABLED=true + AIOPS_PR_DRY_RUN=false: the agent may open a REAL PR against ONE allow-listed file (policy gitops_targets)
 #   - the token comes from a Secret created out-of-band (fine-grained PAT, this repo only, Contents+Pull requests RW):
 #       kubectl -n aiops create secret generic aiops-github --from-literal=token=<fine-grained PAT>
 #   - read-only access to skillpulse-gitops and to the single Argo CD Application oom-demo
@@ -15,7 +15,7 @@ components:
   - ../../../aiops/components/gitops-demo-access
 images:
   - name: skillpulse-aiops-agent
-    newTag: "0.5.0"
+    newTag: "0.5.1"
 patches:
   - target: {kind: Deployment, name: aiops-agent}
     patch: |-
@@ -30,6 +30,7 @@ patches:
               - name: agent
                 env:
                   - {name: AIOPS_GITHUB_ENABLED, value: "true"}
+                  - {name: AIOPS_PR_DRY_RUN, value: "false"}      # real PRs; AIOPS_DRY_RUN stays "true" (no Kubernetes write)
                   - {name: AIOPS_GITHUB_REPO, value: riyan-ahmed/github-actions-kubernetes-masterclass}
                   - {name: AIOPS_GITHUB_BASE_BRANCH, value: gitops-demo}
                   - name: AIOPS_GITHUB_TOKEN

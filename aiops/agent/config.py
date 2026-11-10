@@ -34,6 +34,10 @@ class Settings:
     verify_interval_s: int = 5
     dedupe_window_s: int = 600
     github_enabled: bool = False
+    # Pull-request creation has its OWN dry-run switch, independent of dry_run (which only governs Kubernetes writes).
+    # Default true: a PR is opened only when AIOPS_GITHUB_ENABLED=true AND AIOPS_PR_DRY_RUN=false. Turning this off
+    # grants no Kubernetes permission: RBAC and the policy write allowlist are unchanged.
+    pr_dry_run: bool = True
     github_token: str = field(default="", repr=False)
     github_repo: str = ""                  # owner/name
     github_base_branch: str = "main"
@@ -68,6 +72,7 @@ class Settings:
             verify_interval_s=int(e("AIOPS_VERIFY_INTERVAL_S", d.verify_interval_s)),
             dedupe_window_s=int(e("AIOPS_DEDUPE_WINDOW_S", d.dedupe_window_s)),
             github_enabled=_bool("AIOPS_GITHUB_ENABLED", False),
+            pr_dry_run=_bool("AIOPS_PR_DRY_RUN", True),
             github_token=e("AIOPS_GITHUB_TOKEN", ""),
             github_repo=e("AIOPS_GITHUB_REPO", ""),
             github_base_branch=e("AIOPS_GITHUB_BASE_BRANCH", "main"),

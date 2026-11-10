@@ -48,6 +48,7 @@ flowchart LR
 | PR module | `aiops/agent/gitops.py` | Creates a branch, writes **one** file, opens the PR. Path must be under `k8s/gitops/`. No merge call exists. |
 | Tracker | `aiops/agent/gitops_verify.py` | After the PR: waits for the merge, the Argo CD sync of *that* commit, a healthy workload running the *proposed* limit; records each step. |
 | Overlay | `k8s/aiops/approval-gitops-pr/` | Turns on the PR path. Cluster writes stay in server-side dry run; mode stays `approval`; autonomy stays off. |
+| Two independent switches | `AIOPS_DRY_RUN` (Kubernetes writes) and `AIOPS_PR_DRY_RUN` (GitHub PRs) | A real PR needs `AIOPS_GITHUB_ENABLED=true` **and** `AIOPS_PR_DRY_RUN=false`. Setting it grants no Kubernetes permission: RBAC is read-only and the policy denies `rollout_undo`/`restart_deployment` in `skillpulse-gitops` regardless. Both default to dry run. |
 
 ## 2. Automatic diagnosis, human approval, GitOps recovery: three different things
 
@@ -67,6 +68,7 @@ still require explicit approval for `propose_config_pr`.
 |---|---|---|
 | Agent cannot write the GitOps workload | Policy `write_allowlist: []`, `rollout_undo`/`restart_deployment` not allowed there; RBAC grants only `get/list/watch` | `test_every_cluster_write_is_denied_for_the_gitops_workload`, `test_agent_rbac_has_no_write_permission_on_the_gitops_namespace_or_argocd`, live `kubectl auth can-i` in `gitops-oom-demo.sh preflight` |
 | PR touches only the approved manifest | `gitops_targets` pins one path; `check_pr_path` rejects traversal/absolute/out-of-prefix; one `PUT` per PR; limits-only patch | `test_pr_changes_exactly_one_file_and_only_limits_memory`, `test_pr_path_outside_scope_is_refused`, `test_a_policy_target_outside_the_scope_cannot_produce_a_pr` |
+| Real PR while Kubernetes stays dry-run | `AIOPS_PR_DRY_RUN=false`, `AIOPS_DRY_RUN=true` | `test_pr_dry_run_is_its_own_switch_and_ignores_the_kubernetes_dry_run`, `test_live_pr_with_kubernetes_dry_run_on_opens_a_real_pr_and_never_touches_the_cluster`, `test_direct_kubernetes_writes_stay_blocked_even_when_prs_are_live`, `test_kubernetes_writes_keep_their_own_dry_run_flag` |
 | Agent never merges | No merge API call in the module | `test_the_agent_never_merges_or_pushes_to_the_base_branch` |
 | Memory cap, confidence floor | `validate_action_request`, `min_confidence_for_execution` | `test_memory_cap_is_enforced`, `test_low_confidence_gets_no_pr` |
 | Recovery is *caused by the merge* | Tracker requires Argo CD `Synced`/`Succeeded` at the **merge SHA** and the live memory limit equal to the proposal | `test_a_sync_of_an_older_revision_does_not_count`, `test_recovery_requires_the_proposed_limit_to_be_live` |
