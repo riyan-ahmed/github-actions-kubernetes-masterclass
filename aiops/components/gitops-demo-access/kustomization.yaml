@@ -1,0 +1,6 @@
+# READ-ONLY access the agent needs to follow the oom-demo GitOps flow. There is deliberately NO write verb in this
+# component (aiops/tests/test_gitops_pr_recovery.py proves it): the agent cannot touch the workload, only open a PR.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - rbac-gitops-demo-readonly.yaml

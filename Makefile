@@ -74,7 +74,7 @@ aiops-validate-monitoring: ## Render Loki/Alloy/Grafana values and test them in 
 	$(AIOPS_PY) monitoring/validate/grafana_backup_restore_check.py
 	$(AIOPS_PY) monitoring/validate/grafana_to_agent_check.py $(AIOPS_IMAGE)
 
-AIOPS_IMAGE ?= skillpulse-aiops-agent:0.4.0
+AIOPS_IMAGE ?= skillpulse-aiops-agent:0.5.0
 
 aiops-image: ## Build the agent image for arm64 (the kind nodes' architecture)
 	docker build --platform linux/arm64 -t $(AIOPS_IMAGE) -f aiops/Dockerfile aiops/
@@ -89,6 +89,6 @@ aiops-validate-gitops: ## Render the GitOps overlays and validate the Argo CD ma
 	$(AIOPS_PY) gitops/validate_argocd.py
 
 aiops-lint: ## YAML, shell and Python checks on the AIOps files
-	yamllint -d "{extends: relaxed, rules: {line-length: {max: 220}}}" aiops/deploy aiops/components aiops/scenarios aiops/policies aiops/kustomization.yaml aiops/docker gitops k8s/gitops k8s/aiops monitoring/aiops-grafana-values.yaml monitoring/alloy-values.yaml monitoring/loki-values.yaml monitoring/grafana-persistence-values.yaml monitoring/grafana-pvc.yaml
-	shellcheck -S warning scripts/aiops-decide.sh scripts/seal-db-secret.sh scripts/grafana-alerting-backup.sh scripts/grafana-alerting-restore.sh scripts/rotate-legacy-db-credentials.sh scripts/sealed-secrets-key-backup.sh aiops/scenarios/scenario.sh
+	yamllint -d "{extends: relaxed, rules: {line-length: {max: 220}}}" aiops/deploy aiops/components aiops/scenarios aiops/policies aiops/kustomization.yaml aiops/docker gitops k8s/gitops k8s/aiops aiops/demo monitoring/aiops-grafana-values.yaml monitoring/alloy-values.yaml monitoring/loki-values.yaml monitoring/grafana-persistence-values.yaml monitoring/grafana-pvc.yaml
+	shellcheck -S warning scripts/gitops-oom-demo.sh scripts/aiops-decide.sh scripts/seal-db-secret.sh scripts/grafana-alerting-backup.sh scripts/grafana-alerting-restore.sh scripts/rotate-legacy-db-credentials.sh scripts/sealed-secrets-key-backup.sh aiops/scenarios/scenario.sh
 	$(AIOPS_PY) -m compileall -q aiops/agent aiops/tests monitoring/validate gitops

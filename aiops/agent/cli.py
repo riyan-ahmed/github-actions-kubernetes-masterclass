@@ -30,6 +30,10 @@ def main(argv=None) -> int:
     p = sub.add_parser("verify", help="check recovery of a workload right now")
     p.add_argument("--namespace", required=True)
     p.add_argument("--workload", required=True)
+    p = sub.add_parser("track", help="follow a PR-opening incident to merge, Argo CD sync and recovery (resumes after a restart)")
+    p.add_argument("incident_id")
+    p = sub.add_parser("timeline", help="print the measured stage durations of an incident from the audit log")
+    p.add_argument("incident_id")
     sub.add_parser("audit-verify", help="verify the audit log hash chain")
     args = ap.parse_args(argv)
 
@@ -57,6 +61,16 @@ def main(argv=None) -> int:
         deps.audit.record(None, "manual_recovery_check", "cli", {"namespace": args.namespace, "workload": args.workload, **res})
         print(json.dumps(res, indent=1))
         return 0 if res["recovered"] else 1
+    elif args.cmd == "track":
+        from .gitops_verify import rebuild_tracking_inputs
+        if deps.tracker is None:
+            print("GitHub integration is disabled (AIOPS_GITHUB_ENABLED)")
+            return 2
+        tgt, detail = rebuild_tracking_inputs(deps.audit.events(args.incident_id))
+        print(json.dumps(deps.tracker.track(args.incident_id, tgt, detail), indent=1))
+    elif args.cmd == "timeline":
+        from .gitops_verify import build_timeline
+        print(json.dumps(build_timeline(deps.audit.events(args.incident_id)), indent=1))
     elif args.cmd == "audit-verify":
         ok, msg = deps.audit.verify_chain()
         print(f"audit chain: {msg}")

@@ -147,3 +147,37 @@ grafana:
                       (kube_pod_status_phase{namespace=~"skillpulse-(stg|prd)", phase="Running"} == 1))
                 - *reduce
                 - *threshold
+
+        # Isolated GitOps demo: the oom-demo workload in the sandbox namespace. Its own group so it can be
+        # evaluated every 10 s without changing the cadence of the stg/prd rules above.
+        - orgId: 1
+          name: aiops-gitops-demo
+          folder: AIOps
+          interval: 10s
+          rules:
+            - uid: aiops-oomkilled-gitops-demo
+              title: oom-demo OOMKilled (GitOps demo)
+              condition: C
+              for: 0s
+              noDataState: OK
+              execErrState: Error
+              labels: {aiops: "true", severity: critical, demo: gitops-oom}
+              annotations:
+                summary: oom-demo container was OOMKilled and restarted
+              notification_settings: {receiver: aiops-agent, group_wait: 1s}
+              data:
+                - refId: A
+                  relativeTimeRange: {from: 600, to: 0}
+                  datasourceUid: prometheus
+                  model:
+                    refId: A
+                    instant: true
+                    intervalMs: 1000
+                    maxDataPoints: 43200
+                    expr: >-
+                      max by (namespace, pod, container)
+                      ((kube_pod_container_status_last_terminated_reason{namespace="skillpulse-gitops", pod=~"oom-demo-.*", reason="OOMKilled"} == 1)
+                      and on (namespace, pod, container)
+                      (increase(kube_pod_container_status_restarts_total{namespace="skillpulse-gitops", pod=~"oom-demo-.*"}[10m]) > 0))
+                - *reduce
+                - *threshold

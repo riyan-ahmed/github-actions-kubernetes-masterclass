@@ -28,6 +28,10 @@ def execute_action(*, action_id: str, params: dict, target: dict, kube, prom, po
         return {"action": action_id, "dry_run": dry_run, "namespace": ns, "workload": name, **result}
     if action_id == "propose_config_pr":
         result = propose_config_change(settings=settings, policy=policy, incident_id=incident_id, namespace=ns,
-                                       workload=name, params=params, rationale=rationale, dry_run=dry_run)
-        return {"action": action_id, "dry_run": dry_run, "namespace": ns, "workload": name, **result}
+                                       workload=name, params=params, rationale=rationale,
+                                       # AIOPS_GITHUB_ENABLED is the explicit switch for the PR side effect. A PR is not a
+                                       # cluster change, so the cluster dry-run flag does not suppress it.
+                                       dry_run=dry_run and not settings.github_enabled)
+        return {"action": action_id, "dry_run": result.get("mode") != "pull_request", "namespace": ns,
+                "workload": name, **result}
     return {"action": "escalate_human", "dry_run": dry_run, "namespace": ns, "workload": name, "executed": False}

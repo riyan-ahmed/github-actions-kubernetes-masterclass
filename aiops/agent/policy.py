@@ -73,7 +73,7 @@ class PolicyDecision:
 
     @property
     def executable(self) -> bool:
-        return self.decision in ("requires_approval", "auto_allowed")
+        return self.decision in ("requires_approval", "auto_allowed", "pr_allowed")
 
 
 class Policy:
@@ -144,7 +144,15 @@ class Policy:
             reasons.append("LLM and rules disagree; approval required")
             needs_approval = True
 
-        if auto_ok and not needs_approval:
+        # A pull request is not a cluster change. Where the environment opts in, the agent may open it without
+        # a prior approval step: the human review + merge of the PR is the approval gate, and the policy
+        # still caps the proposed value and pins the target file.
+        pr_direct = (action_id == "propose_config_pr" and action_id in env.get("pr_without_preapproval", [])
+                     and not llm_disagrees)
+        if pr_direct:
+            outcome, why = "pr_allowed", ("opening a pull request changes nothing in the cluster; "
+                                          "a human must review and merge it (Argo CD applies it only after the merge)")
+        elif auto_ok and not needs_approval:
             outcome, why = "auto_allowed", "allowlisted staging action eligible for automatic execution"
         else:
             outcome, why = "requires_approval", "explicit human approval required"

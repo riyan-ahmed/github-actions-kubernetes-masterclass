@@ -76,3 +76,15 @@ def test_incident_id_path_traversal_rejected(client):
     assert c.get("/incidents/..%2f..%2fetc/report", headers=H).status_code in (400, 404)
     assert c.post("/incidents/x/decision", json={"decision": "approve", "approver": "a"},
                   headers={"Authorization": "Bearer ap-token"}).status_code == 400
+
+
+def test_incident_events_and_timeline_are_authenticated_and_read_only(client):
+    c, deps = client
+    iid = c.post("/webhook/grafana", json=PAYLOAD, headers=H).json()["accepted"][0]
+    wait_for(deps, iid, "alert_received")
+    assert c.get(f"/incidents/{iid}/events").status_code == 401
+    assert c.get(f"/incidents/{iid}/timeline").status_code == 401
+    ev = c.get(f"/incidents/{iid}/events", headers=H).json()
+    assert ev and all(e["incident_id"] == iid for e in ev)
+    assert "stages" in c.get(f"/incidents/{iid}/timeline", headers=H).json()
+    assert c.get("/incidents/../events", headers=H).status_code in (400, 404)

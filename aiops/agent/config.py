@@ -37,6 +37,10 @@ class Settings:
     github_token: str = field(default="", repr=False)
     github_repo: str = ""                  # owner/name
     github_base_branch: str = "main"
+    argocd_namespace: str = "argocd"
+    pr_wait_timeout_s: int = 3600          # how long the tracker waits for a human to merge
+    argocd_wait_timeout_s: int = 600
+    tracker_poll_s: int = 5
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -67,4 +71,8 @@ class Settings:
             github_token=e("AIOPS_GITHUB_TOKEN", ""),
             github_repo=e("AIOPS_GITHUB_REPO", ""),
             github_base_branch=e("AIOPS_GITHUB_BASE_BRANCH", "main"),
+            argocd_namespace=e("AIOPS_ARGOCD_NAMESPACE", d.argocd_namespace),
+            pr_wait_timeout_s=int(e("AIOPS_PR_WAIT_TIMEOUT_S", d.pr_wait_timeout_s)),
+            argocd_wait_timeout_s=int(e("AIOPS_ARGOCD_WAIT_TIMEOUT_S", d.argocd_wait_timeout_s)),
+            tracker_poll_s=int(e("AIOPS_TRACKER_POLL_S", d.tracker_poll_s)),
         )

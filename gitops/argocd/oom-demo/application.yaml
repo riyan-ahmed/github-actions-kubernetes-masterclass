@@ -1,0 +1,27 @@
+# AUTOMATIC sync, pruning DISABLED: a merged change reaches the cluster without a manual click, and
+# Argo CD can never delete anything because it vanished from Git. No finalizer: deleting this Application
+# never cascades to the workload.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: oom-demo
+  namespace: argocd
+  annotations:
+    aiops.skillpulse/note: "Isolated demo workload for GitOps self-healing. Tracks the dedicated gitops-demo branch; the agent's PRs target that branch and a human merges them."
+spec:
+  project: oom-demo
+  source:
+    repoURL: https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass.git
+    targetRevision: gitops-demo
+    path: k8s/gitops/oom-demo
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: skillpulse-gitops
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: false
+    syncOptions:
+      - CreateNamespace=false
+      - ApplyOutOfSyncOnly=true
+  revisionHistoryLimit: 5

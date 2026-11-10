@@ -1,15 +1,15 @@
 # AIOps agent image: multi-stage, Chainguard Python (Wolfi), non-root, no shell in the runtime image.
 # Build context: aiops/
-#   docker build --platform linux/arm64 -t skillpulse-aiops-agent:0.2.0 -f aiops/Dockerfile aiops/
+#   docker build --platform linux/arm64 -t skillpulse-aiops-agent:0.5.0 -f aiops/Dockerfile aiops/
 #
 # Base images are pinned by digest for reproducibility. To update: pull the new images, run
 # aiops/docker/container_check.py and a Trivy scan, then change both digests deliberately.
-#   latest-dev -> cgr.dev/chainguard/python:latest-dev@sha256:d0c4d53a...   (builder, has pip)
-#   latest     -> cgr.dev/chainguard/python:latest@sha256:1fa5b8de...       (runtime, no pip/shell)
+#   latest-dev -> cgr.dev/chainguard/python:latest-dev@sha256:62c16c70...   (builder, has pip)
+#   latest     -> cgr.dev/chainguard/python:latest@sha256:c932048a...       (runtime, no pip/shell)
 # Dependencies come from requirements.lock (exact versions resolved and tested together).
 # The Debian-slim, distroless and Alpine alternatives and why they lost: aiops/docker/README.md
 
-FROM cgr.dev/chainguard/python@sha256:d0c4d53aa4ef455b60a9918fd680bf80b82151e2e56c524d8931ffb8115865bd AS builder
+FROM cgr.dev/chainguard/python@sha256:62c16c709c48c8e66647c843b5aceeac81d4523134c742bc017a46f5a86ba5dd AS builder
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 USER root
 COPY requirements.lock /tmp/requirements.lock
@@ -20,7 +20,7 @@ COPY agent /out/aiops/agent
 COPY runbooks /out/aiops/runbooks
 COPY policies /out/aiops/policies
 
-FROM cgr.dev/chainguard/python@sha256:1fa5b8de4d71f79354c71b5f8fd3cb591f51e41dc9e9d620eda2526d1e57a221
+FROM cgr.dev/chainguard/python@sha256:c932048a3f1db1fecefbd589d4fb90bf1d364b4c1ebd9aa8c866f29bb93e88cc
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/deps:/app
 COPY --from=builder /deps /deps
 COPY --from=builder /out /app

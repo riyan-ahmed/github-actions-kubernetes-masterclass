@@ -45,6 +45,7 @@ class Deps:
     index: RunbookIndex
     reasoner: Any
     sleep: Any = None    # injectable for tests
+    tracker: Any = None  # PRTracker (set when GitHub integration is enabled)
 
 
 def new_incident_id() -> str:
@@ -177,12 +178,12 @@ def build_graph(d: Deps, checkpointer=None):
             recent_executions=audit.count_executions(t["namespace"], t["name"]))
         audit.record(state["incident_id"], "policy_decision", "policy-engine",
                      {**decision.as_dict(), "mode": s.mode, "dry_run": s.dry_run, "action": prop["action_id"]})
-        approval = {"status": "not_required" if decision.decision in ("advisory_only", "denied", "auto_allowed") else "pending"}
+        approval = {"status": "not_required" if decision.decision in ("advisory_only", "denied", "auto_allowed", "pr_allowed") else "pending"}
         return {"policy": {**decision.as_dict(), "mode": s.mode, "dry_run": s.dry_run}, "approval": approval}
 
     def route_after_policy(state: IncidentState) -> str:
         dec = state["policy"]["decision"]
-        return {"requires_approval": "notify_pending", "auto_allowed": "execute"}.get(dec, "record")
+        return {"requires_approval": "notify_pending", "auto_allowed": "execute", "pr_allowed": "execute"}.get(dec, "record")
 
     def notify_pending(state: IncidentState):
         path = _write_outputs(state | {"status": "awaiting_approval"})
@@ -220,7 +221,7 @@ def build_graph(d: Deps, checkpointer=None):
             audit.record(iid, "action_executed", AGENT, detail)
             t2 = elapsed(state)
             t2["action_at"] = iso(utcnow())
-            return {"execution": {"status": "dry_run" if s.dry_run else "executed", "detail": detail}, "timings": t2}
+            return {"execution": {"status": "dry_run" if detail.get("dry_run") else "executed", "detail": detail}, "timings": t2}
         except (PolicyError, Exception) as e:
             err = sanitize_untrusted(f"{type(e).__name__}: {e}", 200)
             audit.record(iid, "action_failed", AGENT, {"error": err})
@@ -229,7 +230,13 @@ def build_graph(d: Deps, checkpointer=None):
     def verify(state: IncidentState):
         iid, t, ex = state["incident_id"], state["target"], state.get("execution", {})
         action = state["proposal"]["action_id"]
-        if ex.get("status") != "executed" or action not in ("rollout_undo", "restart_deployment"):
+        if (ex.get("status") == "executed" and action == "propose_config_pr"
+                and ex["detail"].get("mode") == "pull_request" and d.tracker is not None):
+            d.tracker.start(iid, t, ex["detail"])
+            res = {"status": "tracking", "checks": [],
+                   "reason": "pull request opened; the tracker waits for the human merge, Argo CD sync and workload health, "
+                             "and records each step in the audit log"}
+        elif ex.get("status") != "executed" or action not in ("rollout_undo", "restart_deployment"):
             reason = ("dry-run: nothing changed, nothing to verify" if ex.get("status") == "dry_run"
                       else "no cluster change was made; recovery after a merged PR must be verified separately (verify command)")
             res = {"status": "skipped", "checks": [], "reason": reason}

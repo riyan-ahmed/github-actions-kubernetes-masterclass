@@ -55,7 +55,7 @@ def test_pull_request_flow(policy, tmp_path):
             return httpx.Response(200, json={})
         if req.method == "POST" and p.endswith("/pulls"):
             assert json.loads(req.content)["base"] == "main"
-            return httpx.Response(201, json={"html_url": "https://github.com/o/r/pull/9"})
+            return httpx.Response(201, json={"html_url": "https://github.com/o/r/pull/9", "number": 9, "created_at": "2026-11-10T10:00:00Z"})
         return httpx.Response(404)
     r = call(policy, tmp_path, False, True, httpx.MockTransport(handler))
     assert r["mode"] == "pull_request" and r["url"].endswith("/pull/9")

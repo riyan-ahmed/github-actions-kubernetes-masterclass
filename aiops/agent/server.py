@@ -83,6 +83,17 @@ def create_app(deps, graph) -> FastAPI:
             raise HTTPException(404, "no such report")
         return {"report": p.read_text()}
 
+    @app.get("/incidents/{iid}/events", dependencies=[Depends(webhook_auth)])
+    def incident_events(iid: str):
+        incident_file(iid)
+        return deps.audit.events(iid)
+
+    @app.get("/incidents/{iid}/timeline", dependencies=[Depends(webhook_auth)])
+    def incident_timeline(iid: str):
+        from .gitops_verify import build_timeline
+        incident_file(iid)
+        return build_timeline(deps.audit.events(iid))
+
     @app.post("/incidents/{iid}/decision", dependencies=[Depends(approval_auth)])
     async def decide(iid: str, request: Request):
         body = await request.json()

@@ -26,7 +26,8 @@ def schema(kind):
 
 
 ok = True
-for path in [ROOT / "gitops/argocd/project.yaml", *map(pathlib.Path, sorted(glob.glob(str(ROOT / "gitops/argocd/apps/*.yaml"))))]:
+for path in [ROOT / "gitops/argocd/project.yaml", *map(pathlib.Path, sorted(glob.glob(str(ROOT / "gitops/argocd/apps/*.yaml")))),
+             *map(pathlib.Path, sorted(glob.glob(str(ROOT / "gitops/argocd/oom-demo/*.yaml"))))]:
     doc = yaml.safe_load(path.read_text())
     errs = list(jsonschema.Draft7Validator(schema(doc["kind"])).iter_errors(doc))
     print(("VALID   " if not errs else "INVALID ") + f"{path.relative_to(ROOT)} ({doc['kind']})")

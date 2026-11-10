@@ -1,0 +1,11 @@
+# Argo CD source for the isolated oom-demo Application (automatic sync, pruning disabled).
+# Deployed into the existing sandbox namespace next to, but independent of, the SkillPulse sandbox app.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: skillpulse-gitops
+resources:
+  - deployment.yaml
+components:
+  - ../components/gitops-safety      # Prune=false,Delete=false on every object
+patches:
+  - path: patches/resources.yaml     # <- the one file the agent's pull request is allowed to change
