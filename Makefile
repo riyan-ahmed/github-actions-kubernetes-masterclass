@@ -74,7 +74,7 @@ aiops-validate-monitoring: ## Render Loki/Alloy/Grafana values and test them in 
 	$(AIOPS_PY) monitoring/validate/grafana_backup_restore_check.py
 	$(AIOPS_PY) monitoring/validate/grafana_to_agent_check.py $(AIOPS_IMAGE)
 
-AIOPS_IMAGE ?= skillpulse-aiops-agent:0.5.1
+AIOPS_IMAGE ?= skillpulse-aiops-agent:0.5.2
 
 aiops-image: ## Build the agent image for arm64 (the kind nodes' architecture)
 	docker build --platform linux/arm64 -t $(AIOPS_IMAGE) -f aiops/Dockerfile aiops/

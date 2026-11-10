@@ -6,8 +6,9 @@ Grafana detect a failure; Grafana calls the agent; the agent gathers real eviden
 proposes a rollback, and **waits for a named human to approve it**. A policy file, not an LLM, decides what is allowed.
 
 > **What this is not:** it is not autonomous self-healing, not production-ready, and it makes no MTTR-improvement claim. It runs on a
-> local `kind` cluster and every number below is a single measured run. One real, human-approved rollback was demonstrated on a
-> throw-away workload (`backend-sim`).
+> local `kind` cluster and every number below is a measured run. Two remediation paths were demonstrated on throw-away workloads:
+> one human-approved rollback of `backend-sim`, and a **GitOps recovery of an OOMKilled workload (`oom-demo`)** in which the agent's
+> only output is a GitHub pull request and Argo CD does the deploying (see [GitOps self-healing](#gitops-self-healing-oomkilled--pr--merge--argo-cd)).
 
 The application and its original GitHub Actions / Kubernetes tutorial material (from the TrainWithShubham masterclass) are kept
 further down this page. Everything under `aiops/`, `monitoring/`, `gitops/` and `docs/aiops-*` is the SRE/AIOps work.
@@ -39,6 +40,33 @@ flowchart LR
 
 Detail: [`docs/aiops-architecture.md`](docs/aiops-architecture.md).
 
+### GitOps self-healing: OOMKilled -> PR -> merge -> Argo CD
+
+```mermaid
+flowchart LR
+  subgraph cl["kind cluster"]
+    DEMO["oom-demo Deployment<br/>(isolated, skillpulse-gitops)"]
+    PROM[(Prometheus)] --> GRAF["Grafana rule<br/>aiops-oomkilled-gitops-demo"]
+    DEMO --> PROM
+    DEMO -.->|logs| LOKI[(Loki)]
+    AGENT["LangGraph agent<br/>read-only RBAC, policy engine"]
+    ARGO["Argo CD app oom-demo<br/>auto-sync, prune=false"]
+    TRK["tracker (observe only)"]
+  end
+  GRAF -->|"1 webhook"| AGENT
+  AGENT -.->|"2 events, PromQL, LogQL"| DEMO
+  AGENT -->|"3 PR: one file, limits.memory only"| PR
+  subgraph gh["GitHub, branch gitops-demo"]
+    PR["pull request"] -->|"4 merge"| MAN["k8s/gitops/oom-demo"]
+  end
+  MAN -->|"5 Argo CD polls Git"| ARGO
+  ARGO -->|"6 sync"| DEMO
+  TRK -.->|"7 PR merged? Argo Synced at that SHA? pod Ready with new limit?"| AUD[(hash-chained audit log)]
+```
+
+The agent holds **no write permission** on the workload (verified with `kubectl auth can-i`); its Kubernetes dry-run flag
+(`AIOPS_DRY_RUN=true`) and its separate PR switch (`AIOPS_PR_DRY_RUN=false`) are independent.
+
 ## Technologies
 
 | Area | Used |
@@ -48,7 +76,7 @@ Detail: [`docs/aiops-architecture.md`](docs/aiops-architecture.md).
 | Orchestration | Kubernetes (kind), Kustomize overlays (dev / stg / prd) |
 | Observability | kube-prometheus-stack (Prometheus, Grafana), Loki, Grafana Alloy (masks credentials before storage) |
 | Incident response | Python, LangGraph (checkpointed state machine, `interrupt()` for approval), FastAPI webhook, BM25 runbook retrieval |
-| GitOps / secrets | Argo CD (manual sync, no prune), Sealed Secrets (namespace-scoped) |
+| GitOps / secrets | Argo CD (manual sync for the existing app; **auto-sync, no prune** for `oom-demo`), Sealed Secrets (namespace-scoped), GitHub pull requests as the remediation interface |
 | Container security | Chainguard digest-pinned base, non-root, read-only filesystem, 0 Trivy findings on the agent image |
 
 ## How an incident flows
@@ -94,7 +122,7 @@ GitOps: Argo CD synced the sandbox once by hand (8 objects, Healthy about 27 s l
 
 ## Testing
 
-* `make aiops-venv && make aiops-test`: **366 tests** (unit, integration against fake Kubernetes/Prometheus/Loki, manifest and RBAC
+* `make aiops-venv && make aiops-test`: **420 tests** (unit, integration against fake Kubernetes/Prometheus/Loki, manifest and RBAC
   checks, safety and negative tests, a guard against leaked credentials). `make aiops-lint`: YAML, shellcheck, Python compile.
 * Live checks scripted in `aiops/scenarios/` (`scenario.sh` inject / observe / recover / verify) and
   `aiops/scenarios/tools/approval_check.py` (27 approve checks and 13 reject checks, including invalid tokens and tamper attempts).
@@ -111,6 +139,7 @@ namespace; application images use `:latest`; local cluster only. The Terraform/A
 
 | Document | What it covers |
 |---|---|
+| [`docs/aiops-gitops-recovery.md`](docs/aiops-gitops-recovery.md) | The GitOps OOMKilled recovery: design, guarantees and tests, how to run, measured results |
 | [`docs/aiops-architecture.md`](docs/aiops-architecture.md) | Components, data flow, the LangGraph workflow, policy, security model, limits |
 | [`docs/aiops-setup.md`](docs/aiops-setup.md) | Build, test, install order, remediation stages, GitOps, troubleshooting |
 | [`docs/aiops-demo.md`](docs/aiops-demo.md) | Guided demo of the three scenarios with measured timings |

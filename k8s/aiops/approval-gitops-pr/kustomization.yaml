@@ -15,7 +15,7 @@ components:
   - ../../../aiops/components/gitops-demo-access
 images:
   - name: skillpulse-aiops-agent
-    newTag: "0.5.1"
+    newTag: "0.5.2"
 patches:
   - target: {kind: Deployment, name: aiops-agent}
     patch: |-

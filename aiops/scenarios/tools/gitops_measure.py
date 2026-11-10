@@ -11,8 +11,8 @@ Definitions (all in seconds, UTC timestamps):
   pr_open_to_human_merge   PR created -> merged by a human (NOT automated; reported separately)
   merge_to_sync_started    merge -> Argo CD sync operation started (Argo CD Git polling interval dominates)
   argocd_sync_duration     Argo CD sync operation started -> finished
-  sync_to_healthy          sync finished -> Deployment Available again
-  total_incl_human         failure onset -> Deployment Available again
+  sync_to_healthy          sync finished -> new pod Ready
+  total_incl_human         failure onset -> new pod Ready
   total_excl_human         total_incl_human minus pr_open_to_human_merge
 """
 from __future__ import annotations
@@ -101,12 +101,13 @@ def main():
                at=received)
     if res:
         oom = ts(float(res[0]["value"][1]))
-    # the Deployment became Available again after the Argo CD sync
-    avail = None
-    dep = json.loads(kubectl(a.context, "-n", "skillpulse-gitops", "get", "deploy", "oom-demo", "-o", "json"))
-    for c in dep["status"].get("conditions", []):
-        if c["type"] == "Available" and c["status"] == "True":
-            avail = ts(c["lastTransitionTime"])
+    # Healthy = the first pod created by the Argo CD sync that became Ready. (The Deployment itself never goes
+    # unavailable during this failure: the old pod keeps serving while the new one crash-loops, so the
+    # Available condition is not a usable signal.)
+    pods = json.loads(kubectl(a.context, "-n", "skillpulse-gitops", "get", "pods", "-l", "app=oom-demo", "-o", "json"))["items"]
+    ready_times = [ts(c["lastTransitionTime"]) for p in pods for c in p["status"].get("conditions", [])
+                   if c["type"] == "Ready" and c["status"] == "True" and ts(p["metadata"]["creationTimestamp"]) >= sync_start]
+    avail = min(ready_times) if ready_times else None
     recovered_obs = ts(by["workload_recovered"]["data"]["observed_at"])
     injected = None
     if a.inject_file:
@@ -115,7 +116,7 @@ def main():
         except (OSError, KeyError, ValueError):
             pass
 
-    healthy = avail if avail and avail >= sync_start else recovered_obs
+    healthy = avail if avail else recovered_obs
     human = secs(pr_created, merged)
     onset = oom or starts
     out = {
@@ -133,7 +134,7 @@ def main():
             "total_incl_human": secs(onset, healthy),
             "total_excl_human": None if human is None or secs(onset, healthy) is None else round(secs(onset, healthy) - human, 1),
         },
-        "notes": ["Deployment Available transition used for 'healthy'" if healthy == avail else "tracker observation used for 'healthy' (poll granularity)",
+        "notes": ["new pod Ready transition used for 'healthy'" if healthy == avail else "tracker observation used for 'healthy' (poll granularity)",
                   "Grafana alert firing at the agent: " + str(secs(starts, received)) + " s after the alert's startsAt"],
     }
     print(json.dumps(out, indent=1))

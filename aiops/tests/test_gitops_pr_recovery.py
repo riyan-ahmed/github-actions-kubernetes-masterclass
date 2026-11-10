@@ -18,7 +18,7 @@ import yaml
 from aiops.agent.audit import AuditLog
 from aiops.agent.collectors.argocd import summarize_application
 from aiops.agent.config import Settings
-from aiops.agent.gitops import GitHubPR, check_pr_path, propose_config_change
+from aiops.agent.gitops import GitHubPR, check_pr_path, edit_memory_limit, propose_config_change
 from aiops.agent.gitops_verify import PRTracker, build_timeline, rebuild_tracking_inputs
 from aiops.agent.graph import resume_incident, run_incident
 from aiops.agent.policy import Policy, PolicyError, validate_action_request
@@ -28,6 +28,11 @@ from aiops.tests import fakes
 REPO = ROOT.parent
 NS, APP = "skillpulse-gitops", "oom-demo"
 PARAMS = {"container": "oom-demo", "memory_limit": "64Mi"}
+REAL_FILE = (REPO / "k8s/gitops/oom-demo/patches/resources.yaml").read_text()
+
+
+def contents_response(text):
+    return httpx.Response(200, json={"sha": "filesha", "content": base64.b64encode(text.encode()).decode()})
 WRITE_VERBS = {"create", "update", "patch", "delete", "deletecollection", "*", "escalate", "bind", "impersonate"}
 NEEDS_KUBECTL = pytest.mark.skipif(shutil.which("kubectl") is None, reason="kubectl not available")
 
@@ -129,14 +134,19 @@ def test_pr_changes_exactly_one_file_and_only_limits_memory(policy, tmp_path):
             assert json.loads(req.content)["ref"] == "refs/heads/aiops/inc-9"
             return httpx.Response(201, json={})
         if req.method == "GET" and "/contents/" in p:
-            return httpx.Response(200, json={"sha": "filesha"})
+            return contents_response(REAL_FILE)
         if req.method == "PUT":
             puts.append(p)
             body = json.loads(req.content)
             assert body["branch"] == "aiops/inc-9"
-            doc = yaml.safe_load(base64.b64decode(body["content"]))
+            new = base64.b64decode(body["content"]).decode()
+            doc = yaml.safe_load(new)
             res = doc["spec"]["template"]["spec"]["containers"][0]["resources"]
             assert res == {"limits": {"memory": "64Mi"}}, "requests must not be touched"
+            import difflib
+            changed = [l for l in difflib.unified_diff(REAL_FILE.splitlines(), new.splitlines(), lineterm="", n=0)
+                       if l[:1] in "+-" and l[:3] not in ("+++", "---")]
+            assert changed == ["-              memory: 32Mi", "+              memory: 64Mi"], changed     # ONE line
             return httpx.Response(200, json={})
         if req.method == "POST" and p.endswith("/pulls"):
             j = json.loads(req.content)
@@ -205,7 +215,7 @@ def test_live_pr_with_kubernetes_dry_run_on_opens_a_real_pr_and_never_touches_th
         if req.method == "GET" and "/git/ref/" in p:
             return httpx.Response(200, json={"object": {"sha": "abc"}})
         if req.method == "GET" and "/contents/" in p:
-            return httpx.Response(404, json={})
+            return contents_response(REAL_FILE.replace("        - name: oom-demo", "        - name: backend"))
         if req.method in ("POST", "PUT") and p.endswith(("/git/refs", "/patches/resources.yaml")):
             return httpx.Response(201, json={})
         if req.method == "POST" and p.endswith("/pulls"):
@@ -437,7 +447,7 @@ def test_graph_opens_a_pr_without_touching_the_cluster_then_tracks_recovery(make
         if req.method == "GET" and "/git/ref/" in p:
             return httpx.Response(200, json={"object": {"sha": "abc"}})
         if req.method == "GET" and "/contents/" in p:
-            return httpx.Response(404, json={})
+            return contents_response(REAL_FILE.replace("        - name: oom-demo", "        - name: backend"))
         if req.method in ("POST", "PUT") and p.endswith(("/git/refs", "/patches/resources.yaml")):
             return httpx.Response(201, json={})
         if req.method == "POST" and p.endswith("/pulls"):
@@ -516,7 +526,7 @@ def test_gitops_pr_overlay_enables_pr_creation_but_not_autonomy_or_live_cluster_
     assert env["AIOPS_PR_DRY_RUN"]["value"] == "false", "real PRs, while AIOPS_DRY_RUN=true keeps Kubernetes writes dry-run"
     assert env["AIOPS_GITHUB_TOKEN"]["valueFrom"]["secretKeyRef"] == {"name": "aiops-github", "key": "token"}
     assert "value" not in env["AIOPS_GITHUB_TOKEN"], "the token is never inline"
-    assert ctr["image"].endswith(":0.5.1")
+    assert ctr["image"].endswith(":0.5.2")
     pol = yaml.safe_load(next(d for d in docs if d["kind"] == "ConfigMap")["data"]["policy.yaml"])
     assert pol["global"]["auto_remediation_enabled"] is False
     assert not any(d["kind"] in ("ClusterRole", "ClusterRoleBinding", "Secret") for d in docs)
@@ -545,3 +555,39 @@ def test_demo_scripts_never_use_kubectl_to_change_the_workload():
     for forbidden in ("rollout undo", "kubectl patch", "kubectl edit", "kubectl set ", "kubectl scale", "kubectl delete",
                       "kubectl apply", "kubectl replace", "argocd app sync", "kubectl annotate"):
         assert forbidden not in text, forbidden
+
+
+# ---- minimal-diff editing ---------------------------------------------------------------------------------
+def test_edit_changes_exactly_one_line_and_keeps_comments():
+    text = "# keep me\n" + REAL_FILE
+    new = edit_memory_limit(text, "oom-demo", "128Mi")
+    old_l, new_l = text.splitlines(), new.splitlines()
+    assert len(old_l) == len(new_l) and [i for i, (a, b) in enumerate(zip(old_l, new_l)) if a != b] == [
+        next(i for i, l in enumerate(old_l) if "memory:" in l)]
+    assert new.startswith("# keep me\n") and "128Mi" in new and "32Mi" not in new
+
+
+@pytest.mark.parametrize("bad", [
+    "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: x}\nspec: {template: {spec: {containers: []}}}\n",
+    "spec:\n  template:\n    spec:\n      containers:\n        - name: other\n          resources:\n            limits:\n              memory: 32Mi\n",
+    "spec:\n  template:\n    spec:\n      containers:\n        - name: oom-demo\n          resources:\n            limits: {memory: 32Mi}\n",
+])
+def test_edit_fails_closed_on_unexpected_shapes(bad):
+    with pytest.raises(ValueError):
+        edit_memory_limit(bad, "oom-demo", "64Mi")
+
+
+def test_pr_is_refused_if_the_target_file_does_not_exist_on_the_base_branch(policy, tmp_path):
+    def handler(req):
+        p = req.url.path
+        if req.method == "GET" and "/git/ref/" in p:
+            return httpx.Response(200, json={"object": {"sha": "abc"}})
+        if req.method == "POST" and p.endswith("/git/refs"):
+            return httpx.Response(201, json={})
+        if req.method == "GET" and "/contents/" in p:
+            return httpx.Response(404, json={})
+        raise AssertionError(f"unexpected call {req.method} {p}: nothing may be written")
+    s, tr = github(tmp_path, handler)
+    with pytest.raises(ValueError):
+        propose_config_change(settings=s, policy=policy, incident_id="inc-x", namespace=NS, workload=APP, params=PARAMS,
+                              rationale="", dry_run=False, transport=tr)
