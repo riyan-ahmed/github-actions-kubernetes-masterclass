@@ -33,7 +33,7 @@ spec:
           ports:
             - {name: http, containerPort: 8080}
           env:
-            - {name: ALLOC_MB, value: "12"}
+            - {name: ALLOC_MB, value: "40"}
           resources:
             requests: {cpu: 10m, memory: 16Mi}
             limits: {memory: 32Mi}
