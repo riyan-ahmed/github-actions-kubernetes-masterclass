@@ -43,7 +43,7 @@ case "${1:-}" in
     echo "== Argo CD application"
     K -n argocd get application $APP -o jsonpath='{.spec.syncPolicy.automated}{"  sync="}{.status.sync.status}{" health="}{.status.health.status}{" rev="}{.spec.source.targetRevision}{"\n"}'
     echo "== agent configuration (mode/dry-run/github; token value is never printed)"
-    K -n aiops get deploy aiops-agent -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}' | grep -E 'AIOPS_(MODE|DRY_RUN|GITHUB_ENABLED|GITHUB_REPO|GITHUB_BASE_BRANCH|LLM_PROVIDER)='
+    K -n aiops get deploy aiops-agent -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}' | grep -E 'AIOPS_(MODE|DRY_RUN|PR_DRY_RUN|GITHUB_ENABLED|GITHUB_REPO|GITHUB_BASE_BRANCH|LLM_PROVIDER)='
     K -n aiops get deploy aiops-agent -o jsonpath='image={.spec.template.spec.containers[0].image}{"\n"}'
     echo "== agent permissions on the GitOps workload (every write must be 'no')"
     SA="system:serviceaccount:aiops:aiops-agent"; bad=0
