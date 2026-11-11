@@ -16,7 +16,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; ROOT="$(dirname "$HERE")"
 CTX="${DEMO_CONTEXT:-kind-skillpulse}"; NS=skillpulse-gitops; APP=oom-demo
-REPO_SLUG="${DEMO_REPO:-riyan-ahmed/github-actions-kubernetes-masterclass}"; BRANCH="${DEMO_BRANCH:-gitops-demo}"
+REPO_SLUG="${DEMO_REPO:-riyan-ahmed/skillpulse-gitops-self-healing}"; BRANCH="${DEMO_BRANCH:-gitops-demo}"
 RUNS="$ROOT/aiops/audit/gitops-runs"
 K() { kubectl --context "$CTX" "$@"; }
 need() { command -v "$1" >/dev/null 2>&1 || { echo "missing tool: $1" >&2; exit 1; }; }

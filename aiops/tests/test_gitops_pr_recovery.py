@@ -488,7 +488,7 @@ def test_oom_demo_project_is_isolated():
     assert proj["clusterResourceWhitelist"] == []
     assert [w["kind"] for w in proj["namespaceResourceWhitelist"]] == ["Deployment"]
     assert [d["namespace"] for d in proj["destinations"]] == [NS]
-    assert proj["sourceRepos"] == ["https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass.git"]
+    assert proj["sourceRepos"] == ["https://github.com/riyan-ahmed/skillpulse-gitops-self-healing.git"]
 
 
 def test_existing_applications_and_project_are_unchanged_by_the_demo():

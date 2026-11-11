@@ -11,7 +11,7 @@ metadata:
 spec:
   project: oom-demo
   source:
-    repoURL: https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass.git
+    repoURL: https://github.com/riyan-ahmed/skillpulse-gitops-self-healing.git
     targetRevision: gitops-demo
     path: k8s/gitops/oom-demo
   destination:

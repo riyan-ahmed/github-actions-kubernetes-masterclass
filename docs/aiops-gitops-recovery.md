@@ -82,7 +82,7 @@ Order matters. Nothing here touches `skillpulse`, `skillpulse-dev`, `-stg`, `-pr
 
 0. (Already done) **Protect `gitops-demo`:** `.github/workflows/gitops-demo-ci.yml` must exist on that branch, then require a pull request and the status check `validate-oom-demo`, including for administrators. Direct pushes are rejected for the owner and the agent token (`GH006`), so `scripts/gitops-oom-demo.sh inject|reset` now open CI-checked PRs and merge them (no `--admin`).
 1. **Publish the branches.** Push `feature/gitops-oom-remediation`; create branch `gitops-demo` from it (Argo CD tracks it and the agent's PRs target it, so `main` is never touched).
-2. **GitHub token.** Fine-grained personal access token, repository `github-actions-kubernetes-masterclass` only, permissions *Contents: read/write* and *Pull requests: read/write*, short expiry. Store it only in a cluster Secret:
+2. **GitHub token.** Fine-grained personal access token, repository `skillpulse-gitops-self-healing` only, permissions *Contents: read/write* and *Pull requests: read/write*, short expiry. Store it only in a cluster Secret:
    `kubectl --context kind-skillpulse -n aiops create secret generic aiops-github --from-literal=token=<token>`
 3. **Load images** into the kind nodes: `kind load docker-image skillpulse-oom-demo:1.0 skillpulse-aiops-agent:0.5.0 --name skillpulse`.
 4. **Argo CD:** `kubectl apply -f gitops/argocd/oom-demo/project.yaml -f gitops/argocd/oom-demo/application.yaml`.
@@ -157,9 +157,9 @@ one line) -> merge -> Argo CD automatic sync of that merge commit -> new pod Rea
 
 | Run | Incident | PR | Inject commit | PR head | Merge commit | Argo CD revision (Synced/Healthy) | Reset commit | Audit chain |
 |---|---|---|---|---|---|---|---|---|
-| 1 | `inc-20261111-100011-db64e8` | [#3](https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/3) | `927ff3311f` | `dd42805c21` | `1c12549d49` | `1c12549d49` | `9fd3a108ba` | ok |
-| 2 | `inc-20261111-101210-160875` | [#4](https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/4) | `3f1ed910e1` | `2681e39381` | `9286ed0efe` | `9286ed0efe` | `7c5adba7d4` | ok |
-| 3 | `inc-20261111-103209-49d5f0` | [#5](https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/5) | `42c8f1c7be` | `db63ede350` | `370f3c313f` | `370f3c313f` | `dd226feb10` | ok |
+| 1 | `inc-20261111-100011-db64e8` | [#3](https://github.com/riyan-ahmed/skillpulse-gitops-self-healing/pull/3) | `927ff3311f` | `dd42805c21` | `1c12549d49` | `1c12549d49` | `9fd3a108ba` | ok |
+| 2 | `inc-20261111-101210-160875` | [#4](https://github.com/riyan-ahmed/skillpulse-gitops-self-healing/pull/4) | `3f1ed910e1` | `2681e39381` | `9286ed0efe` | `9286ed0efe` | `7c5adba7d4` | ok |
+| 3 | `inc-20261111-103209-49d5f0` | [#5](https://github.com/riyan-ahmed/skillpulse-gitops-self-healing/pull/5) | `42c8f1c7be` | `db63ede350` | `370f3c313f` | `370f3c313f` | `dd226feb10` | ok |
 
 | Run | Pod OOMKilled | Diagnosis | Policy decision | Files changed in PR | Diff |
 |---|---|---|---|---|---|
@@ -198,7 +198,7 @@ one line) -> merge -> Argo CD automatic sync of that merge commit -> new pod Rea
 The three trials above used a scripted merge. To exercise the real control point, one more run stopped at the agent's PR and
 the repository owner reviewed and merged it in the GitHub UI ("Create a merge commit", no admin override). By then `gitops-demo`
 was protected (pull request + required check `validate-oom-demo`, enforced for administrators), so the harness's own failure
-injection and reset were CI-checked PRs too ([#6](https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/6) and its reset).
+injection and reset were CI-checked PRs too ([#6](https://github.com/riyan-ahmed/skillpulse-gitops-self-healing/pull/6) and its reset).
 
 | Stage | Seconds |
 |---|---|
@@ -214,7 +214,7 @@ injection and reset were CI-checked PRs too ([#6](https://github.com/riyan-ahmed
 | Same, excluding the human review | 326.0 |
 | Same, excluding the human review and Argo CD's Git poll | 66.0 |
 
-PR [#7](https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/7): incident `inc-20261111-110911-ecbe77`,
+PR [#7](https://github.com/riyan-ahmed/skillpulse-gitops-self-healing/pull/7): incident `inc-20261111-110911-ecbe77`,
 pod `oom-demo-74bf4c4bc5-gj7wb` OOMKilled (exit 137) at 11:08:13Z, diagnosis `oom_killed / memory_limit_exceeded` (0.9), policy
 `pr_allowed`, one file and one line (`32Mi -> 64Mi`), required check passed on the head commit `39fd7bb939`, merged by `riyan-ahmed`
 as `b543aad6e2`, Argo CD `Synced`/`Healthy` at the same revision, baseline restored (`5120afae22`), audit chain `ok`.
