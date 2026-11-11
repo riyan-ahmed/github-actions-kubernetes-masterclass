@@ -551,7 +551,11 @@ def test_agent_rbac_has_no_write_permission_on_the_gitops_namespace_or_argocd():
 def test_demo_scripts_never_use_kubectl_to_change_the_workload():
     lines = (REPO / "scripts" / "gitops-oom-demo.sh").read_text().splitlines()
     text = "\n".join(l for l in lines if not l.lstrip().startswith("#"))      # comments may name the forbidden commands
-    assert "kubectl" in text and "git_edit" in text
+    assert "kubectl" in text and "git_change_via_pr" in text
+    # gitops-demo is protected: the harness changes it only through pull requests that pass the required check
+    assert "--admin" not in text and "--force" not in text and "push -f" not in text
+    assert 'push -q origin "$BRANCH"' not in text, "no direct push to the protected branch"
+    assert 'push -q origin "$br"' in text and "gh pr merge" in text and "validate-oom-demo" in text
     for forbidden in ("rollout undo", "kubectl patch", "kubectl edit", "kubectl set ", "kubectl scale", "kubectl delete",
                       "kubectl apply", "kubectl replace", "argocd app sync", "kubectl annotate"):
         assert forbidden not in text, forbidden
