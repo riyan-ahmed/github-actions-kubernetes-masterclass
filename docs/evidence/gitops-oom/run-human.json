@@ -6,7 +6,7 @@
  "injection": {
   "injected_at": "2026-11-11T11:05:49Z",
   "commit": "03f791de5c9d3da45c46d011b39711ecff25112f",
-  "pr": "https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/6",
+  "pr": "https://github.com/riyan-ahmed/skillpulse-gitops-self-healing/pull/6",
   "how": "scripts/gitops-oom-demo.sh inject: Git commit raising ALLOC_MB 12 -> 40 on gitops-demo; synced by Argo CD"
  },
  "oom": {
@@ -18,14 +18,14 @@
  },
  "pr": {
   "number": 7,
-  "url": "https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/7",
+  "url": "https://github.com/riyan-ahmed/skillpulse-gitops-self-healing/pull/7",
   "head_sha": "39fd7bb939ca3b0696867ceca878cb5872d36c27",
   "head_ref": "aiops/inc-20261111-110911-ecbe77",
   "created_at": "2026-11-11T11:09:14Z",
   "checks": {
    "required_check": "validate-oom-demo",
    "conclusion": "success",
-   "url": "https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/actions/runs/43009560853/job/130485448905",
+   "url": "https://github.com/riyan-ahmed/skillpulse-gitops-self-healing/actions/runs/43009560853/job/130485448905",
    "note": "required status check passed on the PR head commit"
   },
   "diff": [
@@ -90,7 +90,7 @@
  },
  "measurements": {
   "incident": "inc-20261111-110911-ecbe77",
-  "pr_url": "https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/7",
+  "pr_url": "https://github.com/riyan-ahmed/skillpulse-gitops-self-healing/pull/7",
   "merged_by": "riyan-ahmed",
   "failure_onset_source": "first OOMKilled (harness, Kubernetes lastState)",
   "seconds": {

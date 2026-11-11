@@ -8,7 +8,7 @@ metadata:
 spec:
   project: skillpulse
   source:
-    repoURL: https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass.git
+    repoURL: https://github.com/riyan-ahmed/skillpulse-gitops-self-healing.git
     targetRevision: feature/aiops-self-healing   # TEMPORARY: main has no k8s/gitops yet; switch to main after the merge
     path: k8s/gitops/sandbox
   destination:

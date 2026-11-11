@@ -7,7 +7,7 @@ metadata:
 spec:
   description: Isolated GitOps self-healing demo workload. Deployment only, sandbox namespace only, no cluster-scoped resources.
   sourceRepos:
-    - https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass.git
+    - https://github.com/riyan-ahmed/skillpulse-gitops-self-healing.git
   destinations:
     - {server: https://kubernetes.default.svc, namespace: skillpulse-gitops}
   clusterResourceWhitelist: []

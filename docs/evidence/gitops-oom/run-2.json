@@ -16,7 +16,7 @@
  },
  "pr": {
   "number": 4,
-  "url": "https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/4",
+  "url": "https://github.com/riyan-ahmed/skillpulse-gitops-self-healing/pull/4",
   "head_sha": "2681e39381888833e4c8defced8688e471394338",
   "head_ref": "aiops/inc-20261111-101210-160875",
   "created_at": "2026-11-11T10:12:13Z",
@@ -88,7 +88,7 @@
  },
  "measurements": {
   "incident": "inc-20261111-101210-160875",
-  "pr_url": "https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/4",
+  "pr_url": "https://github.com/riyan-ahmed/skillpulse-gitops-self-healing/pull/4",
   "merged_by": "riyan-ahmed",
   "failure_onset_source": "first OOMKilled (kube-state-metrics)",
   "seconds": {

@@ -30,7 +30,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 CTX, NS, APP = "kind-skillpulse", "skillpulse-gitops", "oom-demo"
-REPO, BRANCH = "riyan-ahmed/github-actions-kubernetes-masterclass", "gitops-demo"
+REPO, BRANCH = "riyan-ahmed/skillpulse-gitops-self-healing", "gitops-demo"
 FILE = "k8s/gitops/oom-demo/patches/resources.yaml"
 DEMO = str(ROOT / "scripts" / "gitops-oom-demo.sh")
 OUT = ROOT / "aiops" / "audit" / "gitops-runs"

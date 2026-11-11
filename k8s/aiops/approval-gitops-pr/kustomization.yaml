@@ -31,7 +31,7 @@ patches:
                 env:
                   - {name: AIOPS_GITHUB_ENABLED, value: "true"}
                   - {name: AIOPS_PR_DRY_RUN, value: "false"}      # real PRs; AIOPS_DRY_RUN stays "true" (no Kubernetes write)
-                  - {name: AIOPS_GITHUB_REPO, value: riyan-ahmed/github-actions-kubernetes-masterclass}
+                  - {name: AIOPS_GITHUB_REPO, value: riyan-ahmed/skillpulse-gitops-self-healing}
                   - {name: AIOPS_GITHUB_BASE_BRANCH, value: gitops-demo}
                   - name: AIOPS_GITHUB_TOKEN
                     valueFrom:

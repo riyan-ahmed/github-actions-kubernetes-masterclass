@@ -41,10 +41,10 @@ Four controlled `OOMKilled` recovery runs completed the same real path: Grafana 
 
 | Trial | Recovery time | PR merge |
 | --- | ---: | --- |
-| [Run 1 — PR #3](https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/3) | **182 s** | Automated harness after scope checks |
-| [Run 2 — PR #4](https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/4) | **338 s** | Automated harness |
-| [Run 3 — PR #5](https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/5) | **535 s** | Automated harness |
-| [Human-reviewed — PR #7](https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/7) | **884 s** | Repository owner, in GitHub UI |
+| [Run 1 — PR #3](https://github.com/riyan-ahmed/skillpulse-gitops-self-healing/pull/3) | **182 s** | Automated harness after scope checks |
+| [Run 2 — PR #4](https://github.com/riyan-ahmed/skillpulse-gitops-self-healing/pull/4) | **338 s** | Automated harness |
+| [Run 3 — PR #5](https://github.com/riyan-ahmed/skillpulse-gitops-self-healing/pull/5) | **535 s** | Automated harness |
+| [Human-reviewed — PR #7](https://github.com/riyan-ahmed/skillpulse-gitops-self-healing/pull/7) | **884 s** | Repository owner, in GitHub UI |
 
 The human-reviewed trial took **326 s excluding 558 s of review time**. The agent's alert-to-PR work took approximately **3–4 s** in the measured trials. Total recovery was affected mainly by Argo CD's Git polling and, in Run 3, a delayed Grafana notification. **No run recovered in under 90 seconds**, and these results are *not* production MTTR.
 

@@ -38,7 +38,7 @@ def test_project_forbids_cluster_resources_and_plaintext_secrets():
 
 
 def test_project_source_is_a_single_pinned_repo():
-    assert PROJECT["spec"]["sourceRepos"] == ["https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass.git"]
+    assert PROJECT["spec"]["sourceRepos"] == ["https://github.com/riyan-ahmed/skillpulse-gitops-self-healing.git"]
 
 
 # ---- Applications -----------------------------------------------------------------------------
