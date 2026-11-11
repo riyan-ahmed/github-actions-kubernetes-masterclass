@@ -9,4 +9,4 @@ spec:
         - name: oom-demo
           resources:
             limits:
-              memory: 64Mi
+              memory: 32Mi
