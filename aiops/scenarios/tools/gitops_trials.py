@@ -63,8 +63,22 @@ def gh_api(path, *extra):
     return json.loads(run("gh", "api", path, *extra))
 
 
+_last = {"wall": time.time(), "mono": time.monotonic()}
+
+
+def check_clock():
+    """Abort if the machine slept: wall time advances during sleep, monotonic time does not. A run that spans a sleep
+    has meaningless timings (and a frozen cluster), so it must not continue."""
+    w, m = time.time(), time.monotonic()
+    drift = (w - _last["wall"]) - (m - _last["mono"])
+    _last.update(wall=w, mono=m)
+    if drift > 20:
+        raise Stop(f"the machine appears to have slept for ~{int(drift)}s; this run's timings would be invalid")
+
+
 def wait(fn, timeout, interval, what):
     start = time.monotonic()
+    check_clock()
     while True:
         v = fn()
         if v:
@@ -72,6 +86,7 @@ def wait(fn, timeout, interval, what):
         if time.monotonic() - start > timeout:
             raise Stop(f"timeout after {timeout}s waiting for: {what}")
         time.sleep(interval)
+        check_clock()
 
 
 def secs(a, b):
@@ -108,7 +123,8 @@ def deployment_state():
     d = kjson("-n", NS, "get", "deploy", APP)
     c = d["spec"]["template"]["spec"]["containers"][0]
     env = {e["name"]: e.get("value") for e in c.get("env", [])}
-    pods = kjson("-n", NS, "get", "pods", "-l", f"app={APP}")["items"]
+    # pods already being deleted by the rollout are not part of the live set (the old pod lingers a few seconds)
+    pods = [p for p in kjson("-n", NS, "get", "pods", "-l", f"app={APP}")["items"] if not p["metadata"].get("deletionTimestamp")]
     return {"limit": c["resources"]["limits"]["memory"], "alloc": env.get("ALLOC_MB"), "pods": pods,
             "ready": d["status"].get("readyReplicas", 0), "revision": d["metadata"]["annotations"].get("deployment.kubernetes.io/revision")}
 
@@ -284,7 +300,8 @@ def trial(n, agent):
     rec["recovered"] = {"limit": s["limit"], "argocd": a2, "pod": s["pods"][0]["metadata"]["name"]}
     log(f"RECOVERED: limit {s['limit']}, Argo CD {a2['sync']}/{a2['health']} at {a2['revision'][:10]}")
 
-    out = run(sys.executable, str(ROOT / "aiops/scenarios/tools/gitops_measure.py"), iid, "--context", CTX, "--inject-file", str(OUT / "last-inject.json"))
+    out = run(sys.executable, str(ROOT / "aiops/scenarios/tools/gitops_measure.py"), iid, "--context", CTX, "--inject-file", str(OUT / "last-inject.json"),
+               "--first-oom", rec["oom"]["finished_at"])
     rec["measurements"] = json.loads(out)
     rec["incident_id"] = iid
     rec["audit_events"] = [{"ts": e["ts"], "event": e["event"], "actor": e["actor"]} for e in events]
@@ -329,7 +346,9 @@ def main():
             log(f"RUN {n} COMPLETE -> {OUT / f'run-{n}.json'}")
             if n < a.start + a.runs - 1:
                 log(f"cooldown {COOLDOWN_S}s (agent dedupe window)")
+                check_clock()
                 time.sleep(COOLDOWN_S)
+                check_clock()
     except Stop as e:
         log(f"STOP: {e}")
         log("The cluster is left exactly as it is. Nothing was patched, rolled back or synced by this script.")

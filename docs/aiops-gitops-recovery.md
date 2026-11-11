@@ -115,8 +115,8 @@ scripts/gitops-oom-demo.sh reset              # Git commit back to the healthy b
 | human approval | PR created -> `merged_at` | GitHub (**a person, not automated**) |
 | Argo CD pickup | merge -> sync operation started | Application `status.operationState` |
 | Argo CD sync | started -> finished | same |
-| rollout | sync finished -> Deployment `Available` | `Deployment.status.conditions` |
-| total | first OOM -> Available (with and without the human step) | derived |
+| rollout | sync finished -> new pod `Ready` | pod `Ready` condition (the Deployment itself never goes unavailable: the old pod keeps serving while the new one crash-loops) |
+| total | first OOM -> new pod Ready (with and without the merge step) | derived |
 
 Argo CD discovers Git changes by polling (this cluster: `timeout.reconciliation` 180 s), so "merge to sync" is
 dominated by that interval unless a webhook or a refresh is configured. No webhook is configured, because a `kind` cluster is not
@@ -124,11 +124,99 @@ reachable from GitHub.
 
 ## 6. Measured results
 
-_Pending: filled in from the three real runs. Nothing in this section is estimated._
+Three official trials ran back to back on 2026-11-11 (`aiops/scenarios/tools/gitops_trials.py`), all on the isolated `oom-demo`
+workload and the `gitops-demo` branch. **All three completed the full loop with every gate passing:**
+real OOMKilled (exit 137) -> Grafana alert -> LangGraph diagnosis (`oom_killed`, confidence 0.9) -> real GitHub PR (one file,
+one line) -> merge -> Argo CD automatic sync of that merge commit -> new pod Ready on the 64Mi limit -> Argo CD `Synced`/`Healthy`
+-> audit chain verified. Nothing was patched, rolled back or synced by hand; the workload was reset between runs by a Git commit.
+
+> **Read this before quoting any number.**
+> * **The merge in these trials was not a human review.** The repository owner delegated the merge to the harness, which merged
+>   only after checking, in code: base branch `gitops-demo`, exactly one file, exactly `memory: 32Mi -> 64Mi`, one commit, mergeable,
+>   no failing checks (none are configured on this branch). "PR created -> merge" below (6-9 s) is script time, **not** human
+>   think time. The design still puts a person at that point; these trials demonstrate everything around it.
+> * **No run recovered in under 90 s** (fastest: 182 s) and no such claim is made.
+> * Sources have 1 s resolution (GitHub, Argo CD, Kubernetes); the agent's audit clock is finer. "Sync duration 0.0" means under 1 s.
+
+| Stage (s) | Run 1 | Run 2 | Run 3 | median |
+|---|---|---|---|---|
+| injection_to_first_oom | 148.1 | 179.6 | 61.5 | 148.1 |
+| first_oom_to_agent_alert | 44.1 | 56.0 | 331.0 | 56.0 |
+| alert_to_diagnosis | 0.3 | 0.2 | 0.2 | 0.2 |
+| diagnosis_to_pr_created | 2.7 | 2.8 | 3.8 | 2.8 |
+| pr_created_to_merge | 6.0 | 9.0 | 9.0 | 9.0 |
+| merge_to_argocd_sync_started | 127.0 | 265.0 | 188.0 | 188.0 |
+| argocd_sync_duration | 0.0 | 0.0 | 0.0 | 0.0 |
+| sync_to_pod_ready | 2.0 | 5.0 | 3.0 | 3.0 |
+| first_oom_to_pr_created | 47.1 | 59.0 | 335.0 | 59.0 |
+| total_first_oom_to_healthy_incl_merge_gate | 182.0 | 338.0 | 535.0 | 338.0 |
+| total_excl_merge_gate | 176.0 | 329.0 | 526.0 | 329.0 |
+| total_excl_merge_gate_and_argocd_poll | 49.0 | 64.0 | 338.0 | 64.0 |
+
+| Run | Incident | PR | Inject commit | PR head | Merge commit | Argo CD revision (Synced/Healthy) | Reset commit | Audit chain |
+|---|---|---|---|---|---|---|---|---|
+| 1 | `inc-20261111-100011-db64e8` | [#3](https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/3) | `927ff3311f` | `dd42805c21` | `1c12549d49` | `1c12549d49` | `9fd3a108ba` | ok |
+| 2 | `inc-20261111-101210-160875` | [#4](https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/4) | `3f1ed910e1` | `2681e39381` | `9286ed0efe` | `9286ed0efe` | `7c5adba7d4` | ok |
+| 3 | `inc-20261111-103209-49d5f0` | [#5](https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/5) | `42c8f1c7be` | `db63ede350` | `370f3c313f` | `370f3c313f` | `dd226feb10` | ok |
+
+| Run | Pod OOMKilled | Diagnosis | Policy decision | Files changed in PR | Diff |
+|---|---|---|---|---|---|
+| 1 | `oom-demo-74bf4c4bc5-txbbj` exit 137 at 2026-11-11T09:59:27Z | oom_killed / memory_limit_exceeded, confidence 0.9 | pr_allowed (propose_config_pr) | 1 | `-              memory: 32Mi` -> `+              memory: 64Mi` |
+| 2 | `oom-demo-74bf4c4bc5-b7hn9` exit 137 at 2026-11-11T10:11:14Z | oom_killed / memory_limit_exceeded, confidence 0.9 | pr_allowed (propose_config_pr) | 1 | `-              memory: 32Mi` -> `+              memory: 64Mi` |
+| 3 | `oom-demo-74bf4c4bc5-jdbzz` exit 137 at 2026-11-11T10:26:39Z | oom_killed / memory_limit_exceeded, confidence 0.9 | pr_allowed (propose_config_pr) | 1 | `-              memory: 32Mi` -> `+              memory: 64Mi` |
+
+`first_oom` is the first `OOMKilled` termination read from Kubernetes by the harness. Stage definitions are in section 5.
+
+### What the numbers say
+
+| | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|
+| Agent work: alert received -> PR created | 3.0 s | 3.0 s | 4.0 s |
+| First OOM -> PR created (detection + agent) | 47.1 s | 59.0 s | 335.0 s |
+| Argo CD pickup after merge (Git poll) | 127 s | 265 s | 188 s |
+| **First OOM -> pod Ready, incl. merge step** | **182 s** | **338 s** | **535 s** |
+| Same, excluding the merge step and Argo CD's Git poll | 49 s | 64 s | 338 s |
+
+* **The agent is fast; the platform timers are slow.** Diagnosis takes 0.2-0.3 s and PR creation about 3 s. The recovery time is
+  dominated by two timers the agent does not control:
+  * **Argo CD's Git polling** (127-265 s here, default 180 s interval, no webhook on a local `kind` cluster). This was left at its
+    default on purpose; it was not tuned or bypassed.
+  * **Grafana notification timing.** In Run 3, Grafana's own state history shows the rule went `Alerting` at 10:27:40 (61 s after the
+    OOM, in line with Runs 1-2) but the webhook only reached the agent at 10:32:09, 269 s later; in Runs 1-2 delivery took about
+    1 s. This is consistent with Grafana's notification-group `group_interval` (default 5 min) applying to a group that had already
+    notified, but the policy settings were not inspected, so it is a likely cause, not a proven one. A shorter `group_interval` in the
+    rule's `notification_settings` is the obvious next experiment.
+* **Variance is real.** Three runs are enough to show the loop works repeatably, not enough for a statistical claim. The medians are
+  descriptive only.
+* **Alert-to-OOM and injection timings** (60-180 s from injection to the first OOM) also depend on the same Argo CD poll, because
+  the injection itself is deployed by Argo CD.
+
+### How the trials were run, and what went wrong first
+
+The evidence directory `docs/evidence/gitops-oom/` holds the three run records (`run-N.json`: raw timestamps, PR and commit SHAs,
+Argo CD revisions, policy and diagnosis, audit-chain result), the official log, and the logs of four earlier attempts that did **not**
+count:
+
+1. **Attempt 0** stopped at the PR-diff gate: the agent re-serialised the whole patch file, so the text diff contained re-indented
+   lines beside the memory change. PR #1 was closed unmerged. Fix: the agent now edits only the `limits.memory` line and refuses to
+   open a PR if the file is not the expected shape (agent 0.5.2).
+2. **Attempt 2** recovered correctly through Git and Argo CD (PR #2) but the harness stopped on a race: the old pod was still
+   `Terminating`. Fix: terminating pods are ignored. PR #2 is merged but is not an official trial.
+3. **Attempts 1 and 3** were discarded because the laptop slept (the second time on battery), freezing the Docker VM and every timer.
+   The harness now compares wall-clock and monotonic time and aborts if the machine slept.
+4. After the runs, the measurement tool was found to take "failure onset" from a Prometheus metric that holds the **latest**
+   termination of a crash-looping container, which under-reported detection time (for example 10 s instead of 44 s in Run 1). The
+   tool now takes the first OOM from the harness, and the tables above are recomputed from the raw timestamps by
+   `gitops_report.py`. The `measurements` field stored inside `run-N.json` predates this fix; use the report script's figures.
+
+### Evidence per run
+
+Each PR is a real, public pull request in this repository (links in the table above); the agent opened it, the harness merged it.
 
 ## 7. Limits
 
 * Local `kind` cluster, one synthetic workload, one failure class. This demonstrates the mechanism, not production readiness.
 * The agent's PR proposes "double the limit, capped at 512Mi". It cannot distinguish a leak from an undersized limit; the PR text says so and the runbook covers it.
+* No status checks or CI are configured on `gitops-demo`, so "checks passing" was vacuous in these trials; the merge gate relied on the content checks described above. `gitops-demo` has no branch protection.
 * The tracker lives in the agent process. If the pod restarts mid-incident, resume with `python -m aiops.agent track <incident-id>`.
 * The GitHub token is a bearer credential held in a cluster Secret. It can open PRs and create branches in this one repository; it cannot merge past a branch-protection rule if one is added to `gitops-demo`.

@@ -8,7 +8,7 @@ proposes a rollback, and **waits for a named human to approve it**. A policy fil
 > **What this is not:** it is not autonomous self-healing, not production-ready, and it makes no MTTR-improvement claim. It runs on a
 > local `kind` cluster and every number below is a measured run. Two remediation paths were demonstrated on throw-away workloads:
 > one human-approved rollback of `backend-sim`, and a **GitOps recovery of an OOMKilled workload (`oom-demo`)** in which the agent's
-> only output is a GitHub pull request and Argo CD does the deploying (see [GitOps self-healing](#gitops-self-healing-oomkilled--pr--merge--argo-cd)).
+> only output is a GitHub pull request and Argo CD does the deploying (see [`docs/aiops-gitops-recovery.md`](docs/aiops-gitops-recovery.md)).
 
 The application and its original GitHub Actions / Kubernetes tutorial material (from the TrainWithShubham masterclass) are kept
 further down this page. Everything under `aiops/`, `monitoring/`, `gitops/` and `docs/aiops-*` is the SRE/AIOps work.
@@ -95,7 +95,10 @@ The agent holds **no write permission** on the workload (verified with `kubectl 
 
 ## Safety controls
 
-* **Human approval** for every real action; **autonomous mode is never enabled** (`auto_remediation_enabled: false`).
+* **Human approval** for every real cluster action; **autonomous mode is never enabled** (`auto_remediation_enabled: false`).
+* **GitOps path:** the agent can only open a pull request (policy decision `pr_allowed`); it has no write permission on the workload
+  (checked live with `kubectl auth can-i`), never merges, may touch one pinned file under `k8s/gitops/`, changes one line, and is
+  capped at 512Mi. `AIOPS_PR_DRY_RUN` (PRs) and `AIOPS_DRY_RUN` (Kubernetes) are independent switches.
 * **Deterministic policy** (`aiops/policies/policy.yaml`): the only workload the agent may write is `Deployment/backend-sim` in
   `skillpulse-stg`; production-like is never written; StatefulSets, PVCs, Secrets and Services are forbidden kinds.
 * **Least-privilege RBAC:** one Role, `get`+`patch` on `deployments/backend-sim`. Verified with `kubectl auth can-i` and with real
@@ -120,6 +123,26 @@ Detection time is dominated by Grafana's evaluation and pending period; the agen
 and Grafana timings, are in [`docs/aiops-demo.md`](docs/aiops-demo.md). **No MTTR-improvement claim is made.**
 GitOps: Argo CD synced the sandbox once by hand (8 objects, Healthy about 27 s later, no change to any existing resource).
 
+### GitOps recovery of an OOMKilled workload (3 trials, 2026-11-11)
+
+Real failure -> Grafana -> LangGraph -> real GitHub PR -> merge -> Argo CD auto-sync -> healthy pod, three times, with no `kubectl`
+patch, rollback or manual sync. Full tables, PR links, commit SHAs and Argo CD revisions: [`docs/aiops-gitops-recovery.md`](docs/aiops-gitops-recovery.md);
+raw records: [`docs/evidence/gitops-oom/`](docs/evidence/gitops-oom/).
+
+| | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|
+| PR | [#3](https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/3) | [#4](https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/4) | [#5](https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/5) |
+| First OOMKilled -> alert at the agent | 44 s | 56 s | 331 s |
+| Alert -> PR created (agent work) | 3.0 s | 3.0 s | 4.0 s |
+| Merge -> Argo CD sync started (Git poll) | 127 s | 265 s | 188 s |
+| **First OOM -> new pod Ready** | **182 s** | **338 s** | **535 s** |
+
+* **Not under 90 s, and no such claim is made.** The agent's own work is about 3 s; the time is Argo CD's Git poll (default 180 s,
+  left untouched) and, in Run 3, a 269 s delay between Grafana's `Alerting` state and the webhook (likely notification-group timing; not proven).
+* **The merge in these trials was automated, not a human review.** The owner delegated it to a harness that merged only after checking
+  base branch, exactly one file, exactly `32Mi -> 64Mi`, one commit and mergeability. The design puts a person at that step.
+* Four earlier attempts did not count (a PR-diff gate caught a real defect; a harness race; the laptop slept twice); all are documented.
+
 ## Testing
 
 * `make aiops-venv && make aiops-test`: **420 tests** (unit, integration against fake Kubernetes/Prometheus/Loki, manifest and RBAC
@@ -131,6 +154,10 @@ GitOps: Argo CD synced the sandbox once by hand (8 objects, Healthy about 27 s l
 
 ## Honest limitations
 
+GitOps trials: one synthetic workload, one failure class, three runs on a local `kind` cluster; the trial merges were scripted after
+automated checks, not read by a person; the recovery time is dominated by Argo CD polling and Grafana notification timing, not by the
+agent; `gitops-demo` has no CI checks or branch protection; the agent's token can write to that repository.
+
 Three incident families; lexical (not semantic) retrieval; faults shorter than about two minutes may not alert; heuristic confidence;
 `kind` does not enforce NetworkPolicy; Argo CD's controller is cluster-admin equivalent (chart default) and manages only a sandbox
 namespace; application images use `:latest`; local cluster only. The Terraform/AWS roadmap was deliberately not started.
@@ -139,6 +166,7 @@ namespace; application images use `:latest`; local cluster only. The Terraform/A
 
 | Document | What it covers |
 |---|---|
+| [`docs/aiops-cv-and-interview.md`](docs/aiops-cv-and-interview.md) | CV bullets by role and interview answers, with the precise wording of what was and was not automated |
 | [`docs/aiops-gitops-recovery.md`](docs/aiops-gitops-recovery.md) | The GitOps OOMKilled recovery: design, guarantees and tests, how to run, measured results |
 | [`docs/aiops-architecture.md`](docs/aiops-architecture.md) | Components, data flow, the LangGraph workflow, policy, security model, limits |
 | [`docs/aiops-setup.md`](docs/aiops-setup.md) | Build, test, install order, remediation stages, GitOps, troubleshooting |

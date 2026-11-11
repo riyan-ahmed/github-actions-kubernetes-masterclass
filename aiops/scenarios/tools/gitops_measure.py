@@ -3,7 +3,7 @@
   python3 aiops/scenarios/tools/gitops_measure.py <incident-id> --context kind-skillpulse [--inject-file last-inject.json]
 
 Definitions (all in seconds, UTC timestamps):
-  failure_onset            first OOMKilled termination (kube-state-metrics last_terminated_timestamp), the real failure
+  failure_onset            first OOMKilled termination (passed with --first-oom), the real failure
   injection_to_oom         Git push of the regression -> first OOMKilled (Argo CD reconcile + rollout + start-up)
   onset_to_detection       first OOMKilled -> alert received by the agent (Prometheus scrape + Grafana evaluation + webhook)
   detection_to_diagnosis   alert received -> diagnosis recorded (Kubernetes + Prometheus + Loki evidence, rules, runbook)
@@ -75,6 +75,7 @@ def main():
     ap.add_argument("incident")
     ap.add_argument("--context", default="kind-skillpulse")
     ap.add_argument("--inject-file")
+    ap.add_argument("--first-oom", help="ISO time of the first OOMKilled termination (from the harness)")
     a = ap.parse_args()
 
     events = agent_get(a.context, f"/incidents/{a.incident}/events")
@@ -94,13 +95,10 @@ def main():
     sync_start = ts(by["argocd_synced"]["data"]["operation_started_at"])
     sync_end = ts(by["argocd_synced"]["data"]["operation_finished_at"])
 
-    # first OOMKilled termination, as seen by kube-state-metrics shortly after the alert fired
-    oom = None
-    res = prom(a.context, 'max(kube_pod_container_status_last_terminated_timestamp{namespace="skillpulse-gitops",pod=~"oom-demo-.*"}'
-                          ' and on(namespace,pod,container) (kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1))',
-               at=received)
-    if res:
-        oom = ts(float(res[0]["value"][1]))
+    # Failure onset = the FIRST OOMKilled termination, supplied by the harness (Kubernetes lastState.terminated.finishedAt of the
+    # first crashed container). It is NOT read from Prometheus: kube_pod_container_status_last_terminated_timestamp holds the
+    # LATEST termination of a crash-looping container, which under-reports detection time when the alert is late.
+    oom = ts(a.first_oom) if a.first_oom else None
     # Healthy = the first pod created by the Argo CD sync that became Ready. (The Deployment itself never goes
     # unavailable during this failure: the old pod keeps serving while the new one crash-loops, so the
     # Available condition is not a usable signal.)
@@ -121,7 +119,7 @@ def main():
     onset = oom or starts
     out = {
         "incident": a.incident, "pr_url": pr["data"]["url"], "merged_by": by["pr_merged"]["data"].get("merged_by"),
-        "failure_onset_source": "first OOMKilled (kube-state-metrics)" if oom else "Grafana alert startsAt (fallback)",
+        "failure_onset_source": "first OOMKilled (harness, Kubernetes lastState)" if oom else "Grafana alert startsAt (fallback)",
         "seconds": {
             "injection_to_oom": secs(injected, oom),
             "onset_to_detection": secs(onset, received),
