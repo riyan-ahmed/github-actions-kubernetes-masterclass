@@ -1,8 +1,9 @@
 """Run the GitOps self-healing trials end to end, with the safety gates enforced in code.
 
-  aiops/.venv/bin/python aiops/scenarios/tools/gitops_trials.py --runs 3
+  aiops/.venv/bin/python aiops/scenarios/tools/gitops_trials.py --runs 3      # scripted merge after automated checks
+  aiops/.venv/bin/python aiops/scenarios/tools/gitops_trials.py --human       # one run; a person reviews and merges the PR
 
-Per trial: inject (Git commit) -> confirm a real OOMKilled -> wait for the agent's PR -> VALIDATE the PR -> merge
+Per trial: inject (PR that passes the required CI check, then merge) -> confirm a real OOMKilled -> wait for the agent's PR -> VALIDATE the PR -> merge
 (`gh pr merge`, never `--admin`) -> wait for Argo CD + recovery -> measure -> reset (Git commit) -> verify baseline.
 
 The merge in these trials is performed by this script after automated checks, under an explicit delegation from the
@@ -192,15 +193,20 @@ def validate_pr(pr_num):
     ev["diff"] = changed
     if pr["commits"] != 1:
         raise Stop(f"PR has {pr['commits']} commits, expected 1")
-    # checks: combined status + check runs on the head commit
-    status = gh_api(f"repos/{REPO}/commits/{pr['head']['sha']}/status")
-    runs = gh_api(f"repos/{REPO}/commits/{pr['head']['sha']}/check-runs")
-    ev["checks"] = {"combined_status": status["state"], "status_contexts": len(status["statuses"]), "check_runs": runs["total_count"]}
-    bad = [r["name"] for r in runs["check_runs"] if r["conclusion"] not in ("success", "neutral", "skipped")]
-    if bad or status["state"] in ("failure", "error"):
-        raise Stop(f"checks not passing: {bad or status['state']}")
-    ev["checks"]["note"] = ("all passing" if status["statuses"] or runs["total_count"]
-                            else "no status checks or workflows are configured for this branch (none applicable)")
+    # the required status check (branch protection context "validate-oom-demo") must have run and passed on this exact commit
+    def ci_state():
+        runs = gh_api(f"repos/{REPO}/commits/{pr['head']['sha']}/check-runs")["check_runs"]
+        mine = [r for r in runs if r["name"] == "validate-oom-demo"]
+        if not mine:
+            return None
+        if mine[0]["status"] != "completed":
+            return None
+        return mine[0]
+    run_ = wait(ci_state, 300, 5, "the required check validate-oom-demo to complete")
+    if run_["conclusion"] != "success":
+        raise Stop(f"required check validate-oom-demo concluded {run_['conclusion']}")
+    ev["checks"] = {"required_check": "validate-oom-demo", "conclusion": "success", "url": run_["html_url"],
+                    "note": "required status check passed on the PR head commit"}
     for _ in range(10):      # mergeability is computed lazily by GitHub
         pr = gh_api(f"repos/{REPO}/pulls/{pr_num}")
         if pr["mergeable"] is not None:
@@ -234,8 +240,8 @@ def agent_gates(agent, iid):
 
 
 # ---- one trial -----------------------------------------------------------------------------------------------------
-def trial(n, agent):
-    rec = {"run": n, "started_at": now().isoformat(), "reintroduction": None}
+def trial(n, agent, human=False):
+    rec = {"run": n, "mode": "human-reviewed" if human else "scripted-merge", "started_at": now().isoformat(), "reintroduction": None}
     log(f"=== RUN {n}: preconditions")
     if not baseline_ok():
         raise Stop("workload is not at the healthy baseline (limit 32Mi, ALLOC_MB 12, 1 Ready pod, 0 restarts, Synced/Healthy)")
@@ -267,13 +273,42 @@ def trial(n, agent):
     rec["agent_gates"] = agent_gates(agent, iid)
     log(f"PR #{pr_num} validated ({pr_ev['head_sha'][:10]}, diff {pr_ev['diff']}, checks: {pr_ev['checks']['note']})")
 
-    log("merging (gh pr merge --merge, pinned to the validated head commit; no --admin)")
-    run("gh", "pr", "merge", str(pr_num), "--repo", REPO, "--merge", "--match-head-commit", pr_ev["head_sha"])
-    merged = gh_api(f"repos/{REPO}/pulls/{pr_num}")
+    if human:
+        log("=" * 78)
+        log(f"PR #{pr_num} IS VALIDATED AND WAITING FOR A HUMAN: {pr_ev['url']}")
+        log("Review the diff and merge it yourself in GitHub. This script will NOT merge. Waiting (no timer on you; the agent's")
+        log("tracker waits up to 60 minutes, so merge within that).")
+        log("=" * 78)
+        (OUT / "human-pending.json").write_text(json.dumps({"pr": pr_ev["url"], "number": pr_num, "since": now().isoformat()}))
+
+        def human_merged():
+            pr_now = gh_api(f"repos/{REPO}/pulls/{pr_num}")
+            if pr_now["state"] == "closed" and not pr_now["merged"]:
+                raise Stop("the PR was closed without merging")
+            return pr_now if pr_now["merged"] else None
+        deadline = time.monotonic() + 3300
+        merged = None
+        while merged is None:                 # deliberately no check_clock(): a person may take as long as they need
+            merged = human_merged()
+            if merged is None:
+                if time.monotonic() > deadline:
+                    raise Stop("no human merged the PR within 55 minutes")
+                time.sleep(10)
+        _last.update(wall=time.time(), mono=time.monotonic())
+        if merged["head"]["sha"] != pr_ev["head_sha"]:
+            raise Stop("the PR head changed after validation")
+        performed = "a human reviewer (merged in the GitHub UI or CLI by the repository owner)"
+        log(f"merged by {merged['merged_by']['login']} at {merged['merged_at']}")
+        (OUT / "human-pending.json").unlink(missing_ok=True)
+    else:
+        log("merging (gh pr merge --merge, pinned to the validated head commit; no --admin)")
+        run("gh", "pr", "merge", str(pr_num), "--repo", REPO, "--merge", "--match-head-commit", pr_ev["head_sha"])
+        merged = gh_api(f"repos/{REPO}/pulls/{pr_num}")
+        performed = "gitops_trials.py after automated validation (delegated by the repository owner; not a manual review)"
     if not merged["merged"]:
-        raise Stop("PR is not merged after gh pr merge")
+        raise Stop("PR is not merged")
     rec["merge"] = {"merged_at": merged["merged_at"], "merge_commit_sha": merged["merge_commit_sha"], "merged_by": merged["merged_by"]["login"],
-                    "performed_by": "gitops_trials.py after automated validation (delegated by the repository owner; not a manual review)"}
+                    "performed_by": performed}
     log(f"merged at {merged['merged_at']} sha {merged['merge_commit_sha'][:10]}")
 
     def argo_at_merge():
@@ -332,19 +367,20 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--start", type=int, default=1)
+    ap.add_argument("--human", action="store_true", help="one trial where a person reviews and merges the agent's PR")
     a = ap.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     agent = Agent()
     results = []
     try:
-        for n in range(a.start, a.start + a.runs):
-            rec, iid = trial(n, agent)
+        for n in (["human"] if a.human else range(a.start, a.start + a.runs)):
+            rec, iid = trial(n, agent, human=a.human)
             reset(rec)
             rec["finished_at"] = now().isoformat()
             (OUT / f"run-{n}.json").write_text(json.dumps(rec, indent=1))
             results.append(rec)
             log(f"RUN {n} COMPLETE -> {OUT / f'run-{n}.json'}")
-            if n < a.start + a.runs - 1:
+            if not a.human and n < a.start + a.runs - 1:
                 log(f"cooldown {COOLDOWN_S}s (agent dedupe window)")
                 check_clock()
                 time.sleep(COOLDOWN_S)

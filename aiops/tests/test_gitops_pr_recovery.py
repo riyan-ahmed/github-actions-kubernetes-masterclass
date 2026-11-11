@@ -591,3 +591,13 @@ def test_pr_is_refused_if_the_target_file_does_not_exist_on_the_base_branch(poli
     with pytest.raises(ValueError):
         propose_config_change(settings=s, policy=policy, incident_id="inc-x", namespace=NS, workload=APP, params=PARAMS,
                               rationale="", dry_run=False, transport=tr)
+
+
+def test_ci_workflow_is_the_required_check_for_gitops_demo_and_cannot_be_triggered_elsewhere():
+    wf = yaml.safe_load((REPO / ".github/workflows/gitops-demo-ci.yml").read_text())
+    assert wf[True] == {"pull_request": {"branches": ["gitops-demo"]}}, "must be a pull_request check on gitops-demo only"
+    assert list(wf["jobs"]) == ["validate-oom-demo"], "the job name is the required status check context"
+    assert wf["permissions"] == {"contents": "read"}
+    text = (REPO / ".github/workflows/gitops-demo-ci.yml").read_text()
+    assert "pull_request_target" not in text and "secrets." not in text
+    assert "k8s/gitops/oom-demo/" in text and "512" in text

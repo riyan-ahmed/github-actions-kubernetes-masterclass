@@ -1,0 +1,45 @@
+# Required status check for the gitops-demo branch (the branch Argo CD's oom-demo Application deploys).
+# Every change to that branch, including the self-healing agent's pull requests, must pass this before it can merge.
+name: gitops-demo-ci
+
+on:
+  pull_request:
+    branches: [gitops-demo]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-oom-demo:          # this exact name is the required status check in the branch protection rule
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Only the oom-demo manifests may change
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          git diff --name-only "origin/${BASE}...HEAD" | tee changed.txt
+          test -s changed.txt
+          if grep -v '^k8s/gitops/oom-demo/' changed.txt; then echo "::error::files outside k8s/gitops/oom-demo/ changed"; exit 1; fi
+
+      - name: Lint, render and check the manifests
+        run: |
+          pip install --quiet yamllint==1.35.1 pyyaml
+          yamllint -d "{extends: relaxed, rules: {line-length: {max: 200}}}" k8s/gitops/oom-demo
+          kubectl kustomize k8s/gitops/oom-demo > render.yaml
+          python3 - <<'PY'
+          import yaml
+          docs = [d for d in yaml.safe_load_all(open("render.yaml")) if d]
+          assert [d["kind"] for d in docs] == ["Deployment"], [d["kind"] for d in docs]
+          dep = docs[0]
+          assert dep["metadata"]["namespace"] == "skillpulse-gitops", dep["metadata"]["namespace"]
+          assert dep["metadata"]["annotations"]["argocd.argoproj.io/sync-options"] == "Prune=false,Delete=false"
+          mem = dep["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"]["memory"]
+          units = {"Ki": 1024, "Mi": 1024**2, "Gi": 1024**3}
+          num, unit = int(mem[:-2]), mem[-2:]
+          assert unit in units and num * units[unit] <= 512 * 1024**2, f"memory limit {mem} exceeds the 512Mi cap"
+          print("rendered 1 Deployment, namespace and prune protection ok, memory limit", mem)
+          PY
