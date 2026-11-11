@@ -1,0 +1,17 @@
+# AIOps agent image. Build context: aiops/   (see .dockerignore)
+#   docker build --platform linux/arm64 -t skillpulse-aiops-agent:0.1.0 -f aiops/Dockerfile aiops/
+FROM python:3.12-slim AS base
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+WORKDIR /app
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install -r /tmp/requirements.txt && rm /tmp/requirements.txt
+# the package lives at /app/aiops/{agent,runbooks,policies}
+COPY __init__.py /app/aiops/__init__.py
+COPY agent /app/aiops/agent
+COPY runbooks /app/aiops/runbooks
+COPY policies /app/aiops/policies
+RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin aiops && mkdir -p /data/audit && chown -R 10001:10001 /data
+USER 10001:10001
+EXPOSE 8085
+ENTRYPOINT ["python", "-m", "aiops.agent"]
+CMD ["serve", "--host", "0.0.0.0", "--port", "8085"]

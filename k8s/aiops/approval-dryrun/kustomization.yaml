@@ -1,0 +1,26 @@
+# Approval-gated rollout_undo with a SERVER-SIDE DRY RUN: the approval flow, the policy re-check, the rollback-target proof and the audit trail all run, but the Deployment is never modified.
+# Scope: skillpulse-stg/backend-sim ONLY. backend, frontend, mysql and everything in production stay read-only.
+# Autonomous remediation stays OFF: the policy keeps auto_remediation_enabled=false and this overlay never sets AIOPS_MODE=auto.
+#   kubectl kustomize k8s/aiops/approval-dryrun      # review
+#   kubectl apply -k k8s/aiops/approval-dryrun       # needs explicit human approval
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../aiops
+components:
+  - ../../../aiops/components/remediator-rbac
+patches:
+  - target: {kind: Deployment, name: aiops-agent}
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: aiops-agent
+      spec:
+        template:
+          spec:
+            containers:
+              - name: agent
+                env:
+                  - {name: AIOPS_MODE, value: approval}
+                  - {name: AIOPS_DRY_RUN, value: "true"}

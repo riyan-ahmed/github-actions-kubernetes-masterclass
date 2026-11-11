@@ -1,0 +1,62 @@
+# backend-sim v2 (readiness): identical to v1 EXCEPT readinessProbe.httpGet.path /health -> /healthz. The application
+# only serves /health, so the probe gets HTTP 404: the pod stays Running but never Ready (liveness still passes on /health,
+# so there are NO restarts). Because the old pod keeps serving, the Deployment still reports 1 available replica.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-sim
+  namespace: skillpulse-stg
+  labels:
+    app: backend-sim
+    aiops.skillpulse/simulation: "true"
+  annotations:
+    kubernetes.io/change-cause: "v2 readiness probe path /healthz (readiness simulation)"
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: backend-sim
+  template:
+    metadata:
+      labels:
+        app: backend-sim
+        aiops.skillpulse/simulation: "true"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532          # the backend image's own non-root user
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: backend
+          image: trainwithshubham/skillpulse-backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - {name: DB_HOST, value: mysql}
+            - {name: DB_PORT, value: "3306"}
+            - {name: PORT, value: "8080"}
+            - name: DB_USER
+              valueFrom: {secretKeyRef: {name: skillpulse-db, key: MYSQL_USER}}
+            - name: DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: skillpulse-db, key: MYSQL_PASSWORD}}
+            - name: DB_NAME
+              valueFrom: {secretKeyRef: {name: skillpulse-db, key: MYSQL_DATABASE}}
+          resources:
+            requests: {cpu: 50m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          livenessProbe:
+            httpGet: {path: /health, port: 8080}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8080}
+            initialDelaySeconds: 5
+            periodSeconds: 5

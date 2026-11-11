@@ -16,7 +16,10 @@ func Connect() {
 	host := getEnv("DB_HOST", "localhost")
 	port := getEnv("DB_PORT", "3306")
 	user := getEnv("DB_USER", "skillpulse")
-	password := getEnv("DB_PASSWORD", "skillpulse123")
+	password := os.Getenv("DB_PASSWORD")
+	if password == "" {
+		log.Fatal("DB_PASSWORD is not set: refusing to start without database credentials")
+	}
 	dbname := getEnv("DB_NAME", "skillpulse")
 
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true", user, password, host, port, dbname)

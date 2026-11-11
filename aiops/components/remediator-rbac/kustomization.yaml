@@ -1,0 +1,6 @@
+# The ONE write permission the design ever grants: get+patch on the single Deployment named backend-sim in
+# skillpulse-stg (aiops/tests/test_rbac.py proves nothing else is writable). Opt-in via the approval overlays.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - rbac-remediator-backend-sim.yaml

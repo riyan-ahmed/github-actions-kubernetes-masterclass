@@ -1,0 +1,12 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oom-demo
+spec:
+  template:
+    spec:
+      containers:
+        - name: oom-demo
+          resources:
+            limits:
+              memory: 32Mi

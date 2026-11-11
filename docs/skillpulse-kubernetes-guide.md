@@ -269,10 +269,10 @@ kind: Secret
 metadata: { name: skillpulse-db, namespace: skillpulse }
 type: Opaque
 stringData:
-  MYSQL_ROOT_PASSWORD: rootpassword123
+  MYSQL_ROOT_PASSWORD: CHANGE_ME
   MYSQL_DATABASE:      skillpulse
   MYSQL_USER:          skillpulse
-  MYSQL_PASSWORD:      skillpulse123
+  MYSQL_PASSWORD:      CHANGE_ME
 ```
 
 `stringData` lets us write the values in plain text in the YAML; Kubernetes base64-encodes them when storing. (`data` would require us to base64-encode by hand.) These are throwaway dev creds, same as our `.env.example`. In real prod, this Secret would be sourced from an external secret store.
@@ -801,7 +801,7 @@ kubectl logs -n skillpulse mysql-0 --previous        # the crashed container's l
 
 # Exec into a pod
 kubectl exec -it -n skillpulse mysql-0 -- /bin/sh
-kubectl exec -it -n skillpulse mysql-0 -- mysql -uskillpulse -pskillpulse123 skillpulse
+kubectl exec -it -n skillpulse mysql-0 -- mysql -uskillpulse -p"$MYSQL_PASSWORD" skillpulse
 
 # Port-forward without NodePort
 kubectl port-forward -n skillpulse svc/backend 8080:8080   # then curl localhost:8080

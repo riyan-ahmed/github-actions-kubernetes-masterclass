@@ -1,0 +1,22 @@
+# Variant: multi-stage, Google distroless (Debian 13, Python 3.13, no shell / package manager / util-linux).
+# Dependencies are installed in a matching python:3.13-slim (Debian 13, same glibc) builder.
+FROM python:3.13-slim AS builder
+ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --target /deps -r /tmp/requirements.txt
+RUN mkdir -p /data/audit /out/aiops
+COPY __init__.py /out/aiops/__init__.py
+COPY agent /out/aiops/agent
+COPY runbooks /out/aiops/runbooks
+COPY policies /out/aiops/policies
+
+FROM gcr.io/distroless/python3-debian13:nonroot
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/deps:/app
+COPY --from=builder /deps /deps
+COPY --from=builder /out /app
+COPY --from=builder --chown=65532:65532 /data /data
+WORKDIR /app
+USER 65532:65532
+EXPOSE 8085
+ENTRYPOINT ["/usr/bin/python3.13", "-m", "aiops.agent"]
+CMD ["serve", "--host", "0.0.0.0", "--port", "8085"]

@@ -1,0 +1,13 @@
+# Adds two Argo CD sync options to the METADATA of every object, never to pod templates (a pod-template
+# change would restart workloads, including MySQL, on the first sync):
+#   Prune=false   Argo CD never deletes this object because it vanished from Git
+#   Delete=false  deleting the Argo CD Application never cascades to this object
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - target: {kind: ".*"}
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/sync-options: Prune=false,Delete=false

@@ -1,0 +1,39 @@
+# Third values layer: give Grafana a PersistentVolume so pod restarts stop deleting UI-created alert
+# rules, dashboards, silences and users.
+#
+# The PVC is created separately (monitoring/grafana-pvc.yaml, applied before the upgrade) and only
+# REFERENCED here, so Helm does not own it: rollback/uninstall cannot delete the data.
+#
+# Today Grafana uses an emptyDir. The upgrade that introduces the volume recreates the pod once, so
+# the UI-created objects are lost exactly one last time: run scripts/grafana-alerting-backup.sh first
+# and scripts/grafana-alerting-restore.sh afterwards. Later restarts and upgrades are then safe.
+grafana:
+  persistence:
+    enabled: true
+    type: pvc
+    existingClaim: grafana-data
+  # Strategy: RollingUpdate with maxSurge 0 / maxUnavailable 1 (one replica: the old pod is taken down
+  # before the new one is started). Why not `type: Recreate`: Helm 4 applies manifests with server-side
+  # apply, and the live Deployment already carries the API-server-defaulted
+  # `rollingUpdate: {maxSurge: 25%, maxUnavailable: 25%}`; switching to Recreate then fails with
+  # "spec.strategy.rollingUpdate: Forbidden: may not be specified when strategy type is 'Recreate'"
+  # (reproduced on 2026-10-28; see monitoring/README.md). This variant passed the same server-side
+  # apply dry run.
+  #
+  # KNOWN RISK for FUTURE upgrades (not this one): this is not a true Recreate. The Deployment
+  # controller does not count a Terminating pod, so the replacement pod can start while the old pod is
+  # still shutting down (up to terminationGracePeriodSeconds). Both would then open the same SQLite
+  # database on the PVC. On a real cluster a ReadWriteOnce volume usually prevents this; on kind's
+  # local-path volumes nothing does. Grafana normally retries on a locked database, so the likelihood
+  # of damage is low, but it is not zero: take a backup (scripts/grafana-alerting-backup.sh) before every
+  # Grafana upgrade. During the FIRST upgrade there is no overlap risk: the old pod writes to its
+  # emptyDir and the new pod gets the empty PVC. A permanent true Recreate is a separate decision.
+  deploymentStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  # local-path creates volume directories with mode 0777, so the root-privileged chown init
+  # container (and its extra busybox image pull) is not needed on kind.
+  initChownData:
+    enabled: false

@@ -1,0 +1,15 @@
+.venv
+.pytest_cache
+**/__pycache__
+audit
+tests
+deploy
+docker
+scenarios
+kustomization.yaml
+Dockerfile
+.dockerignore
+pytest.ini
+requirements.txt
+requirements-dev.txt
+README.md

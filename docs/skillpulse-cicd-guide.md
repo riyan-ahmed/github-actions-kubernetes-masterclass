@@ -467,11 +467,11 @@ Create the deploy directory and the `.env` file:
 mkdir -p ~/skillpulse
 cd ~/skillpulse
 cat > .env <<'EOF'
-MYSQL_ROOT_PASSWORD=rootpassword123
+MYSQL_ROOT_PASSWORD=CHANGE_ME
 DB_HOST=db
 DB_PORT=3306
 DB_USER=skillpulse
-DB_PASSWORD=skillpulse123
+DB_PASSWORD=CHANGE_ME
 DB_NAME=skillpulse
 DOCKERHUB_USERNAME=<your-docker-hub-username>
 EOF

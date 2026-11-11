@@ -1,0 +1,201 @@
+{
+ "run": 1,
+ "started_at": "2026-11-11T09:56:54.875532+00:00",
+ "reintroduction": null,
+ "injection": {
+  "injected_at": "2026-11-11T09:56:58.929967+00:00",
+  "commit": "927ff3311f2678ba4ed31e02a67260da2c88b8b8",
+  "how": "scripts/gitops-oom-demo.sh inject: Git commit raising ALLOC_MB 12 -> 40 on gitops-demo; synced by Argo CD"
+ },
+ "oom": {
+  "pod": "oom-demo-74bf4c4bc5-txbbj",
+  "exit_code": 137,
+  "finished_at": "2026-11-11T09:59:27Z",
+  "restarts": 1,
+  "limit": "32Mi"
+ },
+ "pr": {
+  "number": 3,
+  "url": "https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/3",
+  "head_sha": "dd42805c21dddedafc8ce8f9b5166fbd2e0592aa",
+  "head_ref": "aiops/inc-20261111-100011-db64e8",
+  "created_at": "2026-11-11T10:00:14Z",
+  "checks": {
+   "combined_status": "pending",
+   "status_contexts": 0,
+   "check_runs": 0,
+   "note": "no status checks or workflows are configured for this branch (none applicable)"
+  },
+  "diff": [
+   "-              memory: 32Mi",
+   "+              memory: 64Mi"
+  ],
+  "mergeable_state": "clean"
+ },
+ "agent_gates": {
+  "policy": {
+   "decision": "pr_allowed",
+   "reasons": [
+    "opening a pull request changes nothing in the cluster; a human must review and merge it (Argo CD applies it only after the merge)"
+   ],
+   "would_be": null,
+   "mode": "approval",
+   "dry_run": true,
+   "action": "propose_config_pr"
+  },
+  "classification": {
+   "incident_type": "oom_killed",
+   "root_cause": "memory_limit_exceeded",
+   "confidence": 0.9,
+   "evidence_sources": [
+    "k8s",
+    "logs",
+    "prometheus"
+   ]
+  },
+  "runbook": {
+   "doc": "oomkilled.md",
+   "score": 77.596
+  }
+ },
+ "merge": {
+  "merged_at": "2026-11-11T10:00:20Z",
+  "merge_commit_sha": "1c12549d49748c116da31ed28b9f1c13a7e2351b",
+  "merged_by": "riyan-ahmed",
+  "performed_by": "gitops_trials.py after automated validation (delegated by the repository owner; not a manual review)"
+ },
+ "argocd": {
+  "sync": "Synced",
+  "revision": "1c12549d49748c116da31ed28b9f1c13a7e2351b",
+  "health": "Progressing",
+  "op_phase": "Succeeded",
+  "op_started": "2026-11-11T10:02:27Z",
+  "op_finished": "2026-11-11T10:02:27Z",
+  "op_revision": "1c12549d49748c116da31ed28b9f1c13a7e2351b"
+ },
+ "recovered": {
+  "limit": "64Mi",
+  "argocd": {
+   "sync": "Synced",
+   "revision": "1c12549d49748c116da31ed28b9f1c13a7e2351b",
+   "health": "Healthy",
+   "op_phase": "Succeeded",
+   "op_started": "2026-11-11T10:02:27Z",
+   "op_finished": "2026-11-11T10:02:27Z",
+   "op_revision": "1c12549d49748c116da31ed28b9f1c13a7e2351b"
+  },
+  "pod": "oom-demo-66f7469bd8-n6twg"
+ },
+ "measurements": {
+  "incident": "inc-20261111-100011-db64e8",
+  "pr_url": "https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/3",
+  "merged_by": "riyan-ahmed",
+  "failure_onset_source": "first OOMKilled (kube-state-metrics)",
+  "seconds": {
+   "injection_to_oom": 182.1,
+   "onset_to_detection": 10.1,
+   "detection_to_diagnosis": 0.3,
+   "diagnosis_to_pr": 2.7,
+   "pr_open_to_human_merge": 6.0,
+   "merge_to_sync_started": 127.0,
+   "argocd_sync_duration": 0.0,
+   "sync_to_healthy": 2.0,
+   "total_incl_human": 148.0,
+   "total_excl_human": 142.0
+  },
+  "notes": [
+   "new pod Ready transition used for 'healthy'",
+   "Grafana alert firing at the agent: 1.1 s after the alert's startsAt"
+  ]
+ },
+ "incident_id": "inc-20261111-100011-db64e8",
+ "audit_events": [
+  {
+   "ts": "2026-11-11T10:00:11.091057+00:00",
+   "event": "alert_received",
+   "actor": "aiops-agent"
+  },
+  {
+   "ts": "2026-11-11T10:00:11.142876+00:00",
+   "event": "incident_identified",
+   "actor": "aiops-agent"
+  },
+  {
+   "ts": "2026-11-11T10:00:11.181181+00:00",
+   "event": "evidence_collected",
+   "actor": "aiops-agent"
+  },
+  {
+   "ts": "2026-11-11T10:00:11.237759+00:00",
+   "event": "evidence_collected",
+   "actor": "aiops-agent"
+  },
+  {
+   "ts": "2026-11-11T10:00:11.339996+00:00",
+   "event": "evidence_collected",
+   "actor": "aiops-agent"
+  },
+  {
+   "ts": "2026-11-11T10:00:11.342853+00:00",
+   "event": "diagnosis",
+   "actor": "aiops-agent"
+  },
+  {
+   "ts": "2026-11-11T10:00:11.344868+00:00",
+   "event": "action_proposed",
+   "actor": "aiops-agent"
+  },
+  {
+   "ts": "2026-11-11T10:00:11.347791+00:00",
+   "event": "policy_decision",
+   "actor": "policy-engine"
+  },
+  {
+   "ts": "2026-11-11T10:00:15.329129+00:00",
+   "event": "action_executed",
+   "actor": "aiops-agent"
+  },
+  {
+   "ts": "2026-11-11T10:00:15.359551+00:00",
+   "event": "recovery_tracking_started",
+   "actor": "gitops-tracker"
+  },
+  {
+   "ts": "2026-11-11T10:00:15.364751+00:00",
+   "event": "recovery_verification",
+   "actor": "aiops-agent"
+  },
+  {
+   "ts": "2026-11-11T10:00:15.382698+00:00",
+   "event": "incident_closed",
+   "actor": "aiops-agent"
+  },
+  {
+   "ts": "2026-11-11T10:00:26.864316+00:00",
+   "event": "pr_merged",
+   "actor": "gitops-tracker"
+  },
+  {
+   "ts": "2026-11-11T10:02:32.020325+00:00",
+   "event": "argocd_synced",
+   "actor": "gitops-tracker"
+  },
+  {
+   "ts": "2026-11-11T10:02:32.049107+00:00",
+   "event": "workload_recovered",
+   "actor": "gitops-tracker"
+  },
+  {
+   "ts": "2026-11-11T10:02:32.051588+00:00",
+   "event": "gitops_recovery_complete",
+   "actor": "gitops-tracker"
+  }
+ ],
+ "audit_chain": "audit chain: ok",
+ "reset": {
+  "commit": "9fd3a108baf02af38d5acf29728e251fa505d91f",
+  "how": "scripts/gitops-oom-demo.sh reset: Git commit restoring ALLOC_MB=12 and limits.memory=32Mi on gitops-demo; synced by Argo CD",
+  "at": "2026-11-11T10:02:42.509539+00:00"
+ },
+ "finished_at": "2026-11-11T10:05:39.362345+00:00"
+}

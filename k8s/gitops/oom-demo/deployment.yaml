@@ -1,0 +1,51 @@
+# oom-demo: an isolated, synthetic workload used only to demonstrate GitOps self-healing.
+# It is NOT part of SkillPulse. Healthy baseline: ALLOC_MB=12 under a 32Mi limit.
+# The scenario script raises ALLOC_MB in Git (a "memory demand regression"); the agent then proposes a
+# higher limit in patches/resources.yaml, which is the ONLY file its pull request may touch.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oom-demo
+  labels:
+    app: oom-demo
+    aiops.skillpulse/simulation: "true"
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: oom-demo
+  template:
+    metadata:
+      labels:
+        app: oom-demo
+        aiops.skillpulse/simulation: "true"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: oom-demo
+          image: skillpulse-oom-demo:1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: http, containerPort: 8080}
+          env:
+            - {name: ALLOC_MB, value: "12"}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {memory: 32Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            httpGet: {path: /health, port: 8080}
+            initialDelaySeconds: 2
+            periodSeconds: 3
+          livenessProbe:
+            httpGet: {path: /health, port: 8080}
+            initialDelaySeconds: 10
+            periodSeconds: 10

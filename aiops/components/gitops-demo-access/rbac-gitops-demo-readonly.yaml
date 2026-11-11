@@ -1,0 +1,48 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: aiops-reader
+  namespace: skillpulse-gitops
+rules:
+  - apiGroups: [""]
+    resources: [pods, events]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aiops-reader
+  namespace: skillpulse-gitops
+subjects:
+  - {kind: ServiceAccount, name: aiops-agent, namespace: aiops}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: aiops-reader}
+---
+# Observe (never sync) exactly one Argo CD Application.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: aiops-argocd-app-reader
+  namespace: argocd
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    resourceNames: [oom-demo]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aiops-argocd-app-reader
+  namespace: argocd
+subjects:
+  - {kind: ServiceAccount, name: aiops-agent, namespace: aiops}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: aiops-argocd-app-reader}
