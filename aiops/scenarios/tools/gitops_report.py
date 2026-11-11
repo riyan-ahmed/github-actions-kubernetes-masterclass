@@ -49,7 +49,8 @@ def stages(r):
 
 
 def main():
-    runs = [json.loads(p.read_text()) for p in sorted(RUNS.glob("run-[0-9]*.json"))]
+    files = [Path(a) for a in sys.argv[1:] if not a.startswith("--")] or sorted(RUNS.glob("run-[0-9]*.json"))
+    runs = [json.loads(p.read_text()) for p in files]
     st = [stages(r) for r in runs]
     out = {"runs": [{"run": r["run"], "stages": s} for r, s in zip(runs, st)]}
     keys = list(st[0])

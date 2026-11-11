@@ -139,8 +139,9 @@ raw records: [`docs/evidence/gitops-oom/`](docs/evidence/gitops-oom/).
 
 * **Not under 90 s, and no such claim is made.** The agent's own work is about 3 s; the time is Argo CD's Git poll (default 180 s,
   left untouched) and, in Run 3, a 269 s delay between Grafana's `Alerting` state and the webhook (likely notification-group timing; not proven).
-* **The merge in these trials was automated, not a human review.** The owner delegated it to a harness that merged only after checking
+* **The merge in trials 1-3 was automated, not a human review.** The owner delegated it to a harness that merged only after checking
   base branch, exactly one file, exactly `32Mi -> 64Mi`, one commit and mergeability. The design puts a person at that step.
+* **One more run was human-reviewed** (PR [#7](https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/7), merged by the repository owner in the GitHub UI after about 9 min 18 s of review): first OOM -> pod Ready **884 s** including review, **326 s** without it. `gitops-demo` was by then protected (PR + required CI check, enforced for administrators).
 * Four earlier attempts did not count (a PR-diff gate caught a real defect; a harness race; the laptop slept twice); all are documented.
 
 ## Testing
@@ -156,7 +157,7 @@ raw records: [`docs/evidence/gitops-oom/`](docs/evidence/gitops-oom/).
 
 GitOps trials: one synthetic workload, one failure class, three runs on a local `kind` cluster; the trial merges were scripted after
 automated checks, not read by a person; the recovery time is dominated by Argo CD polling and Grafana notification timing, not by the
-agent; `gitops-demo` has no CI checks or branch protection; the agent's token can write to that repository.
+agent; trials 1-3 predate the branch's CI and protection; required approving reviews are 0 (a same-identity PR cannot be approved by its author); the agent's token can open PRs and create branches in that repository but cannot push to `gitops-demo`.
 
 Three incident families; lexical (not semantic) retrieval; faults shorter than about two minutes may not alert; heuristic confidence;
 `kind` does not enforce NetworkPolicy; Argo CD's controller is cluster-admin equivalent (chart default) and manages only a sandbox

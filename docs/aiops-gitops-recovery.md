@@ -80,6 +80,7 @@ still require explicit approval for `propose_config_pr`.
 
 Order matters. Nothing here touches `skillpulse`, `skillpulse-dev`, `-stg`, `-prd`, the existing `skillpulse-sandbox` app, or any PVC.
 
+0. (Already done) **Protect `gitops-demo`:** `.github/workflows/gitops-demo-ci.yml` must exist on that branch, then require a pull request and the status check `validate-oom-demo`, including for administrators. Direct pushes are rejected for the owner and the agent token (`GH006`), so `scripts/gitops-oom-demo.sh inject|reset` now open CI-checked PRs and merge them (no `--admin`).
 1. **Publish the branches.** Push `feature/gitops-oom-remediation`; create branch `gitops-demo` from it (Argo CD tracks it and the agent's PRs target it, so `main` is never touched).
 2. **GitHub token.** Fine-grained personal access token, repository `github-actions-kubernetes-masterclass` only, permissions *Contents: read/write* and *Pull requests: read/write*, short expiry. Store it only in a cluster Secret:
    `kubectl --context kind-skillpulse -n aiops create secret generic aiops-github --from-literal=token=<token>`
@@ -95,11 +96,12 @@ Rollback of everything: delete the Application (no finalizer, so the Deployment 
 
 ```bash
 scripts/gitops-oom-demo.sh preflight          # read-only: Argo app Synced/Healthy, agent config, agent has no write RBAC
-scripts/gitops-oom-demo.sh inject             # Git commit ALLOC_MB 12 -> 40 on gitops-demo; Argo CD syncs it; the pod is OOMKilled
+scripts/gitops-oom-demo.sh inject             # CI-checked PR + merge: ALLOC_MB 12 -> 40 on gitops-demo; Argo CD syncs it; the pod is OOMKilled
 # Grafana fires -> webhook -> agent -> PR appears on GitHub (watch: scripts/gitops-oom-demo.sh status)
 # a human reviews the PR in GitHub and merges it
 scripts/gitops-oom-demo.sh measure <incident-id>   # stage durations; the incident id is in the PR body / agent logs
-scripts/gitops-oom-demo.sh reset              # Git commit back to the healthy baseline
+scripts/gitops-oom-demo.sh reset              # CI-checked PR + merge back to the healthy baseline
+# or the whole loop with checks and timings:  aiops/.venv/bin/python aiops/scenarios/tools/gitops_trials.py --human   (you merge the PR)
 ```
 
 `python -m aiops.agent timeline <incident-id>` and `GET /incidents/<id>/timeline` give the same stages from the audit log alone.
@@ -131,7 +133,7 @@ one line) -> merge -> Argo CD automatic sync of that merge commit -> new pod Rea
 -> audit chain verified. Nothing was patched, rolled back or synced by hand; the workload was reset between runs by a Git commit.
 
 > **Read this before quoting any number.**
-> * **The merge in these trials was not a human review.** The repository owner delegated the merge to the harness, which merged
+> * **The merge in trials 1-3 was not a human review** (the separate run below was). The repository owner delegated the merge to the harness, which merged
 >   only after checking, in code: base branch `gitops-demo`, exactly one file, exactly `memory: 32Mi -> 64Mi`, one commit, mergeable,
 >   no failing checks (none are configured on this branch). "PR created -> merge" below (6-9 s) is script time, **not** human
 >   think time. The design still puts a person at that point; these trials demonstrate everything around it.
@@ -191,6 +193,33 @@ one line) -> merge -> Argo CD automatic sync of that merge commit -> new pod Rea
 * **Alert-to-OOM and injection timings** (60-180 s from injection to the first OOM) also depend on the same Argo CD poll, because
   the injection itself is deployed by Argo CD.
 
+### One human-reviewed run (2026-11-11, after CI and branch protection were added)
+
+The three trials above used a scripted merge. To exercise the real control point, one more run stopped at the agent's PR and
+the repository owner reviewed and merged it in the GitHub UI ("Create a merge commit", no admin override). By then `gitops-demo`
+was protected (pull request + required check `validate-oom-demo`, enforced for administrators), so the harness's own failure
+injection and reset were CI-checked PRs too ([#6](https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/6) and its reset).
+
+| Stage | Seconds |
+|---|---|
+| Injection merged -> first OOMKilled | 144.0 |
+| First OOM -> alert at the agent | 58.1 |
+| Alert -> diagnosis | 0.3 |
+| Diagnosis -> PR created | 2.7 |
+| **PR created -> merged by the human reviewer** | **558.0** (9 min 18 s of real review) |
+| Merge -> Argo CD sync started (Git poll) | 260.0 |
+| Argo CD sync duration | under 1 |
+| Sync finished -> new pod Ready | 5.0 |
+| **First OOM -> pod Ready, including the human review** | **884.0** |
+| Same, excluding the human review | 326.0 |
+| Same, excluding the human review and Argo CD's Git poll | 66.0 |
+
+PR [#7](https://github.com/riyan-ahmed/github-actions-kubernetes-masterclass/pull/7): incident `inc-20261111-110911-ecbe77`,
+pod `oom-demo-74bf4c4bc5-gj7wb` OOMKilled (exit 137) at 11:08:13Z, diagnosis `oom_killed / memory_limit_exceeded` (0.9), policy
+`pr_allowed`, one file and one line (`32Mi -> 64Mi`), required check passed on the head commit `39fd7bb939`, merged by `riyan-ahmed`
+as `b543aad6e2`, Argo CD `Synced`/`Healthy` at the same revision, baseline restored (`5120afae22`), audit chain `ok`.
+Raw record: `docs/evidence/gitops-oom/run-human.json`. This is a single run; it shows the human step works, not a trend.
+
 ### How the trials were run, and what went wrong first
 
 The evidence directory `docs/evidence/gitops-oom/` holds the three run records (`run-N.json`: raw timestamps, PR and commit SHAs,
@@ -217,6 +246,6 @@ Each PR is a real, public pull request in this repository (links in the table ab
 
 * Local `kind` cluster, one synthetic workload, one failure class. This demonstrates the mechanism, not production readiness.
 * The agent's PR proposes "double the limit, capped at 512Mi". It cannot distinguish a leak from an undersized limit; the PR text says so and the runbook covers it.
-* No status checks or CI are configured on `gitops-demo`, so "checks passing" was vacuous in these trials; the merge gate relied on the content checks described above. `gitops-demo` has no branch protection.
+* Trials 1-3 ran before `gitops-demo` had CI or branch protection, so "checks passing" was vacuous there and the merge gate relied on the content checks. The human-reviewed run was protected (PR + `validate-oom-demo`, enforced for admins). Required approving reviews are 0, because the agent's PRs are opened under the same GitHub identity as the reviewer, and GitHub does not let you approve your own PR.
 * The tracker lives in the agent process. If the pod restarts mid-incident, resume with `python -m aiops.agent track <incident-id>`.
 * The GitHub token is a bearer credential held in a cluster Secret. It can open PRs and create branches in this one repository; it cannot merge past a branch-protection rule if one is added to `gitops-demo`.

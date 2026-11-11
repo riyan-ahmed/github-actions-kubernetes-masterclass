@@ -47,7 +47,7 @@ The agent has no write access to the workload.
 * Containerised the agent on a digest-pinned Chainguard base (non-root, read-only filesystem); refreshed digests and `oauthlib` to clear
   new Trivy HIGH findings; image gate with 34 checks passes.
 * Treated alert content as untrusted input (sanitisation, injection flags), kept secrets out of Git (token in a cluster Secret, never
-  logged), and used a tamper-evident audit log that verified in-pod after every run.
+  logged), protected the deployment branch (PR + required check, enforced for administrators, verified by rejected direct pushes from both the owner and the agent token), and used a tamper-evident audit log that verified in-pod after every run.
 
 ## Interview answers
 
@@ -57,8 +57,8 @@ runbook, proposes "raise the limit", and the policy file allows only a PR. The P
 that commit; a tracker confirms the pod is Ready on the new limit and writes the timeline to the audit log.
 
 **Where is the human?** At the merge. Automatic diagnosis, human approval and GitOps recovery are three separate steps with three
-different identities (agent, reviewer, Argo CD). In my trials I delegated the merge to a harness that checked the diff in code, so
-those runs did not exercise a human reviewer; I say so in the write-up.
+different identities (agent, reviewer, Argo CD). In three of my four runs I delegated the merge to a harness that checked the diff in code; the fourth was reviewed and merged
+by me in the GitHub UI (about 9 minutes of real review). The write-up says which is which.
 
 **Why not just `kubectl patch` or `rollout undo`?** That bypasses review and Git history and creates drift that Argo CD would revert.
 The agent has no write permission on the workload, so a bug or a prompt injection cannot patch it.
@@ -71,5 +71,5 @@ defaults untouched so the numbers are honest.
 fails closed); my harness raced a terminating pod; my laptop slept and corrupted two runs; and my first measurement logic used the
 latest OOM instead of the first. All are in `docs/evidence/gitops-oom/`.
 
-**Limits.** One synthetic workload on a local cluster, three runs, no CI on the demo branch, and the agent cannot tell a leak from an
-undersized limit (the PR says so).
+**Limits.** One synthetic workload on a local cluster, four runs, and the agent cannot tell a leak from an undersized limit (the PR says
+so). The demo branch now requires a PR and a CI check, but not an approving review, because a same-identity PR cannot be approved.
